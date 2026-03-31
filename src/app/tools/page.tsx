@@ -1,6 +1,77 @@
 'use client'
 import { useState } from 'react'
-import { Gauge, Info } from 'lucide-react'
+import { Gauge, Info, Wifi } from 'lucide-react'
+
+// ── TTFB Breakdown Tool ──
+function TTFBTool() {
+  const [dns, setDns] = useState(30)
+  const [tcp, setTcp] = useState(40)
+  const [tls, setTls] = useState(60)
+  const [server, setServer] = useState(200)
+  const [transfer, setTransfer] = useState(80)
+
+  const ttfb = dns + tcp + tls + server + transfer
+  const score = ttfb <= 200 ? 'Good' : ttfb <= 600 ? 'Needs Improvement' : 'Poor'
+  const scoreColor = ttfb <= 200 ? '#34d399' : ttfb <= 600 ? '#fbbf24' : '#f87171'
+  const pct = Math.min(100, (ttfb / 1500) * 100)
+
+  const sliders = [
+    { label: 'DNS Lookup', value: dns, set: setDns, min: 0, max: 200, color: '#818cf8', tip: 'Time to resolve the domain name. Use dns-prefetch or preconnect to reduce this.' },
+    { label: 'TCP Connect', value: tcp, set: setTcp, min: 0, max: 200, color: '#60a5fa', tip: 'TCP handshake time. Reduced by HTTP/2 connection reuse and closer edge servers.' },
+    { label: 'TLS Handshake', value: tls, set: setTls, min: 0, max: 300, color: '#a78bfa', tip: 'SSL/TLS negotiation. Use TLS 1.3 and session resumption to minimize this.' },
+    { label: 'Server Processing', value: server, set: setServer, min: 10, max: 2000, color: '#fbbf24', tip: 'Time server takes to generate the response. Target < 200ms with caching + CDN.' },
+    { label: 'Content Transfer', value: transfer, set: setTransfer, min: 10, max: 500, color: '#34d399', tip: 'Time to transfer the first byte after server responds. Reduce with Brotli/Gzip.' },
+  ]
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.75rem', flexWrap: 'wrap', gap: '1rem' }}>
+        <div>
+          <div style={{ fontSize: 'clamp(2.5rem,6vw,3.5rem)', fontWeight: 900, color: scoreColor, lineHeight: 1 }}>
+            {ttfb}ms
+          </div>
+          <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginTop: '0.25rem' }}>Time to First Byte</div>
+        </div>
+        <div style={{ padding: '0.6rem 1.2rem', borderRadius: 10, fontWeight: 700, fontSize: '0.9rem', background: `${scoreColor}18`, color: scoreColor, border: `1px solid ${scoreColor}35` }}>
+          {score}
+        </div>
+      </div>
+
+      <div style={{ height: 8, borderRadius: 4, background: 'var(--border)', marginBottom: '2rem', overflow: 'hidden' }}>
+        <div style={{ height: '100%', borderRadius: 4, width: `${pct}%`, background: `linear-gradient(90deg, #43e97b, ${scoreColor})`, transition: 'width 0.3s ease' }} />
+      </div>
+
+      {/* Stacked breakdown bar */}
+      <div style={{ height: 10, borderRadius: 5, display: 'flex', overflow: 'hidden', marginBottom: '2rem', gap: 2 }}>
+        {sliders.map(s => (
+          <div key={s.label} style={{ flex: s.value, background: s.color, minWidth: 4, transition: 'flex 0.3s ease', borderRadius: 2 }} title={`${s.label}: ${s.value}ms`} />
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+        {sliders.map(s => (
+          <div key={s.label}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span style={{ width: 10, height: 10, borderRadius: 2, background: s.color, display: 'inline-block' }} />
+                {s.label}
+              </span>
+              <span style={{ fontSize: '0.85rem', color: s.color, fontWeight: 700, fontFamily: 'monospace' }}>{s.value}ms</span>
+            </div>
+            <input type="range" min={s.min} max={s.max} value={s.value} onChange={e => s.set(Number(e.target.value))} style={{ width: '100%', accentColor: s.color }} />
+            <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>{s.tip}</p>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: '1.5rem', padding: '1rem', borderRadius: 10, background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.2)' }}>
+        <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.7 }}>
+          <strong style={{ color: '#60a5fa' }}>TTFB Breakdown:</strong> DNS {dns}ms + TCP {tcp}ms + TLS {tls}ms + Server {server}ms + Transfer {transfer}ms = <strong style={{ color: scoreColor }}>{ttfb}ms</strong>
+        </p>
+      </div>
+    </div>
+  )
+}
 
 // LCP simulator
 function LCPTool() {
@@ -11,7 +82,7 @@ function LCPTool() {
 
   const lcp = ttfb + renderDelay + resourceLoad + elementRender
   const score = lcp <= 2500 ? 'Good' : lcp <= 4000 ? 'Needs Improvement' : 'Poor'
-  const scoreColor = lcp <= 2500 ? '#43e97b' : lcp <= 4000 ? '#f7971e' : '#ff6b6b'
+  const scoreColor = lcp <= 2500 ? '#34d399' : lcp <= 4000 ? '#fbbf24' : '#f87171'
   const pct = Math.min(100, (lcp / 6000) * 100)
 
   const sliders = [
@@ -65,7 +136,7 @@ function LCPTool() {
         ))}
       </div>
 
-      <div style={{ marginTop: '1.5rem', padding: '1rem', borderRadius: 10, background: 'var(--accent-glow)', border: '1px solid rgba(124,107,255,0.2)' }}>
+      <div style={{ marginTop: '1.5rem', padding: '1rem', borderRadius: 10, background: 'var(--accent-glow)', border: '1px solid rgba(129,140,248,0.2)' }}>
         <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
           <strong style={{ color: 'var(--accent)' }}>LCP Breakdown:</strong> TTFB {ttfb}ms + Render Delay {renderDelay}ms + Resource Load {resourceLoad}ms + Element Render {elementRender}ms = <strong style={{ color: scoreColor }}>{lcp}ms</strong>
         </p>
@@ -83,7 +154,7 @@ function CLSTool() {
   const cls = (shiftCount * avgShiftSize * (viewport / 100)).toFixed(4)
   const clsNum = parseFloat(cls)
   const score = clsNum <= 0.1 ? 'Good' : clsNum <= 0.25 ? 'Needs Improvement' : 'Poor'
-  const scoreColor = clsNum <= 0.1 ? '#43e97b' : clsNum <= 0.25 ? '#f7971e' : '#ff6b6b'
+  const scoreColor = clsNum <= 0.1 ? '#34d399' : clsNum <= 0.25 ? '#fbbf24' : '#f87171'
   const pct = Math.min(100, (clsNum / 0.5) * 100)
 
   return (
@@ -116,7 +187,7 @@ function CLSTool() {
           </div>
           <input type="range" min={s.min} max={s.max} step={s.step} value={s.value}
             onChange={e => s.set(Number(e.target.value))}
-            style={{ width: '100%', accentColor: '#f7971e' }} />
+            style={{ width: '100%', accentColor: '#fbbf24' }} />
           <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>{s.tip}</p>
         </div>
       ))}
@@ -132,7 +203,7 @@ function INPTool() {
 
   const inp = inputDelay + processingTime + presentationDelay
   const score = inp <= 200 ? 'Good' : inp <= 500 ? 'Needs Improvement' : 'Poor'
-  const scoreColor = inp <= 200 ? '#43e97b' : inp <= 500 ? '#f7971e' : '#ff6b6b'
+  const scoreColor = inp <= 200 ? '#34d399' : inp <= 500 ? '#fbbf24' : '#f87171'
   const pct = Math.min(100, (inp / 1000) * 100)
 
   return (
@@ -161,18 +232,18 @@ function INPTool() {
         <div key={s.label} style={{ marginBottom: '1.25rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.4rem' }}>
             <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>{s.label}</span>
-            <span style={{ fontSize: '0.85rem', color: '#43e97b', fontWeight: 700, fontFamily: 'monospace' }}>{s.value}ms</span>
+            <span style={{ fontSize: '0.85rem', color: '#34d399', fontWeight: 700, fontFamily: 'monospace' }}>{s.value}ms</span>
           </div>
           <input type="range" min={s.min} max={s.max} value={s.value}
             onChange={e => s.set(Number(e.target.value))}
-            style={{ width: '100%', accentColor: '#43e97b' }} />
+            style={{ width: '100%', accentColor: '#34d399' }} />
           <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>{s.tip}</p>
         </div>
       ))}
 
-      <div style={{ marginTop: '1.5rem', padding: '1rem', borderRadius: 10, background: 'rgba(67,233,123,0.06)', border: '1px solid rgba(67,233,123,0.2)' }}>
+      <div style={{ marginTop: '1.5rem', padding: '1rem', borderRadius: 10, background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.2)' }}>
         <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-          <strong style={{ color: '#43e97b' }}>Formula:</strong> INP = Input Delay ({inputDelay}ms) + Processing ({processingTime}ms) + Presentation ({presentationDelay}ms) = <strong style={{ color: scoreColor }}>{inp}ms</strong>
+          <strong style={{ color: '#34d399' }}>Formula:</strong> INP = Input Delay ({inputDelay}ms) + Processing ({processingTime}ms) + Presentation ({presentationDelay}ms) = <strong style={{ color: scoreColor }}>{inp}ms</strong>
         </p>
       </div>
     </div>
@@ -180,9 +251,10 @@ function INPTool() {
 }
 
 const tools = [
-  { id: 'lcp', label: 'LCP Simulator', color: '#38bdf8', component: LCPTool, desc: 'Understand what contributes to your Largest Contentful Paint score.' },
-  { id: 'cls', label: 'CLS Calculator', color: '#f7971e', component: CLSTool, desc: 'See how layout shifts compound to affect your CLS score.' },
-  { id: 'inp', label: 'INP Breakdown', color: '#43e97b', component: INPTool, desc: 'Decompose your Interaction to Next Paint into its three phases.' },
+  { id: 'lcp', label: 'LCP Simulator', color: '#60a5fa', component: LCPTool, desc: 'Understand what contributes to your Largest Contentful Paint score.' },
+  { id: 'cls', label: 'CLS Calculator', color: '#fbbf24', component: CLSTool, desc: 'See how layout shifts compound to affect your CLS score.' },
+  { id: 'inp', label: 'INP Breakdown', color: '#34d399', component: INPTool, desc: 'Decompose your Interaction to Next Paint into its three phases.' },
+  { id: 'ttfb', label: 'TTFB Breakdown', color: '#a78bfa', component: TTFBTool, desc: 'Break down Time to First Byte into DNS, TCP, TLS, server, and transfer phases.' },
 ]
 
 export default function ToolsPage() {
@@ -240,9 +312,9 @@ export default function ToolsPage() {
             <div className="glass-card" style={{ padding: '1.75rem' }}>
               <p style={{ fontWeight: 700, fontSize: '0.85rem', marginBottom: '1rem' }}>Score Thresholds</p>
               {[
-                { label: 'Good', color: '#43e97b', range: tool.id === 'lcp' ? '≤ 2.5s' : tool.id === 'cls' ? '≤ 0.1' : '≤ 200ms' },
-                { label: 'Needs Work', color: '#f7971e', range: tool.id === 'lcp' ? '2.5–4.0s' : tool.id === 'cls' ? '0.1–0.25' : '200–500ms' },
-                { label: 'Poor', color: '#ff6b6b', range: tool.id === 'lcp' ? '> 4.0s' : tool.id === 'cls' ? '> 0.25' : '> 500ms' },
+                { label: 'Good', color: '#34d399', range: tool.id === 'lcp' ? '≤ 2.5s' : tool.id === 'cls' ? '≤ 0.1' : '≤ 200ms' },
+                { label: 'Needs Work', color: '#fbbf24', range: tool.id === 'lcp' ? '2.5–4.0s' : tool.id === 'cls' ? '0.1–0.25' : '200–500ms' },
+                { label: 'Poor', color: '#f87171', range: tool.id === 'lcp' ? '> 4.0s' : tool.id === 'cls' ? '> 0.25' : '> 500ms' },
               ].map(s => (
                 <div key={s.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -254,7 +326,7 @@ export default function ToolsPage() {
               ))}
             </div>
 
-            <div className="glass-card" style={{ padding: '1.5rem', background: 'rgba(124,107,255,0.05)', borderColor: 'rgba(124,107,255,0.2)' }}>
+            <div className="glass-card" style={{ padding: '1.5rem', background: 'rgba(129,140,248,0.05)', borderColor: 'rgba(129,140,248,0.2)' }}>
               <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.65 }}>
                 💡 <strong style={{ color: 'var(--accent)' }}>Tip:</strong> Google requires <strong>Good</strong> ratings on all three metrics for your page to pass Core Web Vitals assessment in Search Console.
               </p>

@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { CheckSquare, Square, RefreshCw, Download } from 'lucide-react'
+import { CheckSquare, Square, RefreshCw, Download, FileText } from 'lucide-react'
 
 type CheckItem = { id: string; text: string; category: string; impact: 'high' | 'medium' | 'low' }
 
@@ -54,8 +54,8 @@ const items: CheckItem[] = [
   { id: 'gen10', category: 'General', impact: 'low', text: 'Performance budget set and documented in project' },
 ]
 
-const impactColor: Record<string, string> = { high: '#ff6b6b', medium: '#f7971e', low: '#43e97b' }
-const catColor: Record<string, string> = { LCP: '#38bdf8', INP: '#43e97b', CLS: '#f7971e', General: '#7c6bff' }
+const impactColor: Record<string, string> = { high: '#f87171', medium: '#fbbf24', low: '#34d399' }
+const catColor: Record<string, string> = { LCP: '#60a5fa', INP: '#34d399', CLS: '#fbbf24', General: '#818cf8' }
 const categories = ['All', 'LCP', 'INP', 'CLS', 'General']
 
 export default function ChecklistPage() {
@@ -72,12 +72,36 @@ export default function ChecklistPage() {
 
   const reset = () => setChecked(new Set())
 
+  const exportResults = () => {
+    const lines: string[] = [
+      '=== VitalFix Performance Audit Report ===',
+      `Generated: ${new Date().toLocaleString()}`,
+      `Score: ${pct}% (${done}/${total} completed)`,
+      '',
+    ]
+    const cats = ['LCP', 'INP', 'CLS', 'General']
+    for (const cat of cats) {
+      const catItems = items.filter(i => i.category === cat)
+      lines.push(`── ${cat} ──`)
+      for (const item of catItems) {
+        const status = checked.has(item.id) ? '[x]' : '[ ]'
+        lines.push(`${status} [${item.impact.toUpperCase()}] ${item.text}`)
+      }
+      lines.push('')
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `vitalfix-audit-${Date.now()}.txt`
+    a.click()
+  }
+
   const filtered = filter === 'All' ? items : items.filter(i => i.category === filter)
   const total = filtered.length
   const done = filtered.filter(i => checked.has(i.id)).length
   const pct = total === 0 ? 0 : Math.round((done / total) * 100)
 
-  const scoreColor = pct >= 80 ? '#43e97b' : pct >= 50 ? '#f7971e' : '#ff6b6b'
+  const scoreColor = pct >= 80 ? '#34d399' : pct >= 50 ? '#fbbf24' : '#f87171'
   const circumference = 2 * Math.PI * 45
   const offset = circumference - (pct / 100) * circumference
 
@@ -97,7 +121,7 @@ export default function ChecklistPage() {
       </section>
 
       <div className="container-pad" style={{ padding: '2.5rem 1.5rem' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '2.5rem', alignItems: 'start' }}>
+        <div className="checklist-grid" style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '2.5rem', alignItems: 'start' }}>
           {/* Checklist */}
           <div>
             {/* Filters */}
@@ -119,9 +143,18 @@ export default function ChecklistPage() {
                 marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.35rem',
                 padding: '0.35rem 0.85rem', borderRadius: 100,
                 background: 'var(--bg-card)', border: '1px solid var(--border)',
-                color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.8rem',
+                color: 'var(--text-muted)', cursor: 'pointer', fontSize: '0.8rem', transition: 'all 0.2s',
               }}>
                 <RefreshCw size={12} /> Reset
+              </button>
+              <button onClick={exportResults} style={{
+                display: 'flex', alignItems: 'center', gap: '0.35rem',
+                padding: '0.35rem 0.85rem', borderRadius: 100,
+                background: done > 0 ? 'rgba(96,165,250,0.1)' : 'var(--bg-card)',
+                border: `1px solid ${done > 0 ? 'rgba(96,165,250,0.3)' : 'var(--border)'}`,
+                color: done > 0 ? '#60a5fa' : 'var(--text-muted)', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, transition: 'all 0.2s',
+              }}>
+                <Download size={12} /> Export
               </button>
             </div>
 
@@ -134,14 +167,14 @@ export default function ChecklistPage() {
                   style={{
                     display: 'flex', alignItems: 'center', gap: '0.9rem',
                     padding: '0.9rem 1.1rem', borderRadius: 10,
-                    border: `1px solid ${checked.has(item.id) ? 'rgba(67,233,123,0.25)' : 'var(--border)'}`,
-                    background: checked.has(item.id) ? 'rgba(67,233,123,0.05)' : 'var(--bg-card)',
+                    border: `1px solid ${checked.has(item.id) ? 'rgba(52,211,153,0.25)' : 'var(--border)'}`,
+                    background: checked.has(item.id) ? 'rgba(52,211,153,0.05)' : 'var(--bg-card)',
                     cursor: 'pointer', transition: 'all 0.2s',
                     opacity: checked.has(item.id) ? 0.7 : 1,
                   }}
                 >
                   {checked.has(item.id)
-                    ? <CheckSquare size={18} color="#43e97b" style={{ flexShrink: 0 }} />
+                    ? <CheckSquare size={18} color="#34d399" style={{ flexShrink: 0 }} />
                     : <Square size={18} color="var(--text-muted)" style={{ flexShrink: 0 }} />
                   }
                   <span style={{
@@ -198,9 +231,9 @@ export default function ChecklistPage() {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.5rem' }}>
                 {[
-                  { label: 'Needs Work', color: '#ff6b6b', range: '0–49%' },
-                  { label: 'Getting There', color: '#f7971e', range: '50–79%' },
-                  { label: 'Excellent', color: '#43e97b', range: '80–100%' },
+                  { label: 'Needs Work', color: '#f87171', range: '0–49%' },
+                  { label: 'Getting There', color: '#fbbf24', range: '50–79%' },
+                  { label: 'Excellent', color: '#34d399', range: '80–100%' },
                 ].map(s => (
                   <div key={s.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem' }}>
                     <span style={{ color: s.color, fontWeight: 600 }}>{s.label}</span>
@@ -211,9 +244,9 @@ export default function ChecklistPage() {
 
               <p style={{
                 fontSize: '0.78rem', fontWeight: 700,
-                color: pct >= 80 ? '#43e97b' : pct >= 50 ? '#f7971e' : '#ff6b6b',
+                color: pct >= 80 ? '#34d399' : pct >= 50 ? '#fbbf24' : '#f87171',
                 padding: '0.5rem', borderRadius: 8,
-                background: pct >= 80 ? 'rgba(67,233,123,0.1)' : pct >= 50 ? 'rgba(247,151,30,0.1)' : 'rgba(255,107,107,0.1)',
+                background: pct >= 80 ? 'rgba(52,211,153,0.1)' : pct >= 50 ? 'rgba(251,191,36,0.1)' : 'rgba(248,113,113,0.1)',
               }}>
                 {pct >= 80 ? '🚀 Excellent work!' : pct >= 50 ? '⚡ Keep going!' : '🔧 Lots to improve'}
               </p>
@@ -221,6 +254,11 @@ export default function ChecklistPage() {
           </div>
         </div>
       </div>
+      <style>{`
+        @media (max-width: 768px) {
+          .checklist-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
     </div>
   )
 }

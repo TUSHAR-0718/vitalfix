@@ -25,7 +25,7 @@ const plans = [
     price: '$29',
     per: 'per month',
     desc: 'Advanced tools, monitoring, and CI integration for professional devs.',
-    color: '#7c6bff',
+    color: '#818cf8',
     features: [
       'Everything in Free',
       '60+ curated code snippets',
@@ -45,7 +45,7 @@ const plans = [
     price: '$99',
     per: 'per month',
     desc: 'Full-stack CWV observability for agencies and growing startups.',
-    color: '#38bdf8',
+    color: '#60a5fa',
     features: [
       'Everything in Pro',
       'Unlimited team members',
@@ -148,9 +148,9 @@ export default function PricingPage() {
       <section style={{ padding: '3rem 0', background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-subtle)' }}>
         <div className="container-pad" style={{ display: 'flex', justifyContent: 'center', gap: '3rem', flexWrap: 'wrap' }}>
           {[
-            { icon: <Shield size={20} color="#7c6bff" />, text: 'No credit card required for Free' },
-            { icon: <Zap size={20} color="#43e97b" />, text: '14-day money-back guarantee' },
-            { icon: <Star size={20} color="#f7971e" />, text: 'Cancel Pro anytime, no fees' },
+            { icon: <Shield size={20} color="#818cf8" />, text: 'No credit card required for Free' },
+            { icon: <Zap size={20} color="#34d399" />, text: '14-day money-back guarantee' },
+            { icon: <Star size={20} color="#fbbf24" />, text: 'Cancel Pro anytime, no fees' },
           ].map(t => (
             <div key={t.text} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
               {t.icon}
