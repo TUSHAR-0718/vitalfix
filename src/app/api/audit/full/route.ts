@@ -6,6 +6,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { runCustomAudit, calculateHealthScore } from '@/lib/audit-engine'
 import { cacheKey, getCached, setCache } from '@/lib/audit-engine/cache'
 
+// Vercel serverless function config — audit can take up to 45s
+export const maxDuration = 60
+
+// Warn at startup if PSI API key is missing (heavily rate-limited without it)
+if (!process.env.GOOGLE_PSI_API_KEY) {
+  console.warn('[audit API] GOOGLE_PSI_API_KEY is not set. PSI requests will be heavily rate-limited by Google.')
+}
+
 // ── Structured error for PSI failures ──
 class PSIError extends Error {
   status: number
