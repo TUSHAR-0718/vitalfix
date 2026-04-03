@@ -50,16 +50,19 @@ export async function checkBrokenLinks(fetched: FetchResult): Promise<CategoryRe
       if (r.status === 'fulfilled') {
         const { link, res } = r.value
         if (!res.ok) {
-          failed++
+          // 403/401 are often false positives — servers reject HEAD but serve GET fine
+          const isAuthReject = res.status === 403 || res.status === 401
+          if (!isAuthReject) failed++
           findings.push({
-            id: `broken-link-${failed}`,
+            id: `broken-link-${i + j + 1}`,
             title: `Broken link: ${res.status || 'timeout'}`,
             description: `"${link.text}" → ${link.href}`,
-            severity: res.status >= 500 ? 'critical' : res.status === 404 ? 'moderate' : 'minor',
+            severity: isAuthReject ? 'info' : res.status >= 500 ? 'critical' : res.status === 404 ? 'moderate' : 'minor',
             category: 'broken-links',
             value: String(res.status || 'timeout'),
             element: `<a href="${link.href}">${link.text}</a>`,
           })
+          if (isAuthReject) passed++ // Don't penalize score for auth rejections
         } else {
           passed++
         }

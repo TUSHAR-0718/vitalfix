@@ -11,11 +11,14 @@ const CONCURRENCY = 8
 
 const MODERN_FORMATS = ['webp', 'avif', 'svg']
 
+const KNOWN_IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'avif', 'svg', 'ico', 'tiff']
+
 function getExtension(url: string): string {
   try {
     const pathname = new URL(url).pathname
     const ext = pathname.split('.').pop()?.toLowerCase() || ''
-    return ext.split('?')[0]
+    // Validate it's actually a known image extension (not a path segment like '200x300')
+    return KNOWN_IMAGE_EXTS.includes(ext) ? ext : ''
   } catch { return '' }
 }
 
@@ -36,14 +39,14 @@ export async function checkImages(fetched: FetchResult): Promise<CategoryResult>
     if (src) images.push({ src, alt, hasLazy, hasWidth, hasHeight })
   })
 
-  // Check alt text
+  // Check alt text (alt="" is valid for decorative images per WCAG)
   for (const img of images) {
-    if (img.alt === undefined || img.alt === '') {
+    if (img.alt === undefined) {
       failed++
       findings.push({
         id: `img-no-alt-${failed}`,
-        title: 'Image missing alt text',
-        description: `Image lacks alt attribute for accessibility`,
+        title: 'Image missing alt attribute',
+        description: `Image lacks alt attribute entirely. Use alt="" for decorative images or descriptive text for meaningful ones.`,
         severity: 'moderate',
         category: 'images',
         element: `<img src="${img.src.slice(0, 80)}">`,

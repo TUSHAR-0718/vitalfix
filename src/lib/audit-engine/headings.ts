@@ -80,11 +80,13 @@ export async function checkHeadings(fetched: FetchResult): Promise<CategoryResul
   }
 
   // ── Check: empty headings ──
+  let emptyCount = 0
   for (const h of headings) {
     if (!h.text) {
+      emptyCount++
       failed++
       findings.push({
-        id: `empty-h${h.level}`,
+        id: `empty-heading-${emptyCount}`,
         title: `Empty H${h.level} heading`,
         description: 'Headings should contain descriptive text for SEO and accessibility',
         severity: 'moderate',
