@@ -3,9 +3,9 @@
 
 import * as cheerio from 'cheerio'
 import { AuditFinding, CategoryResult, FetchResult } from './types'
+import type { CheerioAPI } from './index'
 
-export async function checkMetaTags(fetched: FetchResult): Promise<CategoryResult> {
-  const $ = cheerio.load(fetched.html)
+export async function checkMetaTags(fetched: FetchResult, $: CheerioAPI): Promise<CategoryResult> {
   const findings: AuditFinding[] = []
   let passed = 0
   let failed = 0

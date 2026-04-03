@@ -4,6 +4,7 @@
 import * as cheerio from 'cheerio'
 import { AuditFinding, CategoryResult, FetchResult } from './types'
 import { headRequest, resolveUrl } from './fetcher'
+import type { CheerioAPI } from './index'
 
 const MAX_ASSETS = 30
 const LARGE_CSS_BYTES = 100_000   // 100 KB
@@ -17,8 +18,7 @@ interface AssetInfo {
   element: string
 }
 
-export async function checkAssets(fetched: FetchResult): Promise<CategoryResult> {
-  const $ = cheerio.load(fetched.html)
+export async function checkAssets(fetched: FetchResult, $: CheerioAPI): Promise<CategoryResult> {
   const findings: AuditFinding[] = []
   let passed = 0
   let failed = 0

@@ -4,6 +4,7 @@
 import * as cheerio from 'cheerio'
 import { AuditFinding, CategoryResult, FetchResult } from './types'
 import { headRequest, resolveUrl } from './fetcher'
+import type { CheerioAPI } from './index'
 
 const MAX_IMAGES = 30
 const LARGE_IMAGE_BYTES = 500_000  // 500 KB
@@ -22,8 +23,7 @@ function getExtension(url: string): string {
   } catch { return '' }
 }
 
-export async function checkImages(fetched: FetchResult): Promise<CategoryResult> {
-  const $ = cheerio.load(fetched.html)
+export async function checkImages(fetched: FetchResult, $: CheerioAPI): Promise<CategoryResult> {
   const findings: AuditFinding[] = []
   let passed = 0
   let failed = 0

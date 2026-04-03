@@ -1,6 +1,8 @@
 // ── Audit Engine Orchestrator ──
 // Runs all 8 audit modules in parallel with per-module timeouts
+// HTML is parsed ONCE with cheerio and shared across all modules
 
+import * as cheerio from 'cheerio'
 import { FetchResult, CategoryResult, CustomAuditResult } from './types'
 import { fetchPage } from './fetcher'
 import { buildCustomAuditResult } from './scorer'
@@ -16,7 +18,8 @@ import { checkAccessibility } from './accessibility'
 
 const MODULE_TIMEOUT = 8_000 // 8 seconds per module
 
-type AuditModule = (fetched: FetchResult) => Promise<CategoryResult>
+export type CheerioAPI = ReturnType<typeof cheerio.load>
+type AuditModule = (fetched: FetchResult, $: CheerioAPI) => Promise<CategoryResult>
 
 const modules: AuditModule[] = [
   checkBrokenLinks,
@@ -35,17 +38,18 @@ const modules: AuditModule[] = [
 async function runWithTimeout(
   fn: AuditModule,
   fetched: FetchResult,
+  $: CheerioAPI,
   timeout: number
 ): Promise<CategoryResult | null> {
   return Promise.race([
-    fn(fetched),
+    fn(fetched, $),
     new Promise<null>((resolve) => setTimeout(() => resolve(null), timeout)),
   ])
 }
 
 /**
  * Run the full custom audit engine against a URL.
- * Fetches the page once, then runs all 8 audit modules in parallel.
+ * Fetches the page once, parses HTML once, then runs all 8 audit modules in parallel.
  */
 export async function runCustomAudit(url: string): Promise<CustomAuditResult> {
   const start = Date.now()
@@ -53,12 +57,15 @@ export async function runCustomAudit(url: string): Promise<CustomAuditResult> {
   // Step 1: Fetch the page (shared across all modules)
   const fetched = await fetchPage(url, 15_000)
 
-  // Step 2: Run all modules in parallel with individual timeouts
+  // Step 2: Parse HTML once — shared across all 8 modules (saves ~300ms)
+  const $ = cheerio.load(fetched.html)
+
+  // Step 3: Run all modules in parallel with individual timeouts
   const results = await Promise.allSettled(
-    modules.map(mod => runWithTimeout(mod, fetched, MODULE_TIMEOUT))
+    modules.map(mod => runWithTimeout(mod, fetched, $, MODULE_TIMEOUT))
   )
 
-  // Step 3: Collect results (skip failed/timed-out modules)
+  // Step 4: Collect results (skip failed/timed-out modules)
   const categories: CategoryResult[] = []
   for (const r of results) {
     if (r.status === 'fulfilled' && r.value !== null) {
@@ -68,7 +75,7 @@ export async function runCustomAudit(url: string): Promise<CustomAuditResult> {
 
   const duration = Date.now() - start
 
-  // Step 4: Build the final result with scoring
+  // Step 5: Build the final result with scoring
   return buildCustomAuditResult(url, categories, duration)
 }
 

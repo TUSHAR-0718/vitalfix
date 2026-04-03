@@ -3,6 +3,7 @@
 
 import * as cheerio from 'cheerio'
 import { AuditFinding, CategoryResult, FetchResult } from './types'
+import type { CheerioAPI } from './index'
 
 const SECURITY_HEADERS: { header: string; label: string; severity: 'critical' | 'moderate' | 'minor' }[] = [
   { header: 'strict-transport-security',  label: 'Strict-Transport-Security (HSTS)', severity: 'critical' },
@@ -13,8 +14,7 @@ const SECURITY_HEADERS: { header: string; label: string; severity: 'critical' | 
   { header: 'permissions-policy',         label: 'Permissions-Policy',                severity: 'minor' },
 ]
 
-export async function checkSecurity(fetched: FetchResult): Promise<CategoryResult> {
-  const $ = cheerio.load(fetched.html)
+export async function checkSecurity(fetched: FetchResult, $: CheerioAPI): Promise<CategoryResult> {
   const findings: AuditFinding[] = []
   let passed = 0
   let failed = 0

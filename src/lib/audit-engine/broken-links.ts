@@ -4,12 +4,12 @@
 import * as cheerio from 'cheerio'
 import { AuditFinding, CategoryResult, FetchResult } from './types'
 import { headRequest, resolveUrl } from './fetcher'
+import type { CheerioAPI } from './index'
 
 const MAX_LINKS = 50
 const CONCURRENCY = 10
 
-export async function checkBrokenLinks(fetched: FetchResult): Promise<CategoryResult> {
-  const $ = cheerio.load(fetched.html)
+export async function checkBrokenLinks(fetched: FetchResult, $: CheerioAPI): Promise<CategoryResult> {
   const baseUrl = fetched.url
   const baseHost = new URL(baseUrl).hostname
 
