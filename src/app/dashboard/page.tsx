@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Search, AlertTriangle, ArrowRight, Terminal, Globe, Wifi, Smartphone, Monitor, MapPin, GitCompare, Zap, BarChart3, Eye, ShieldCheck, Star, ExternalLink, RefreshCw, CheckCircle, XCircle } from 'lucide-react'
 import ScoreRing from '@/components/ScoreRing'
 import Link from 'next/link'
@@ -14,6 +14,8 @@ import SiteAuditTab from './SiteAuditTab'
 const connections = ['4G (Fast)', '4G (Slow)', '3G', 'Cable']
 const locations = ['US East (Virginia)', 'EU West (London)', 'Asia (Singapore)', 'AU (Sydney)']
 
+const STORAGE_KEY = 'vitalfix-last-audit'
+
 export default function DashboardPage() {
   const [url, setUrl] = useState('')
   const [result, setResult] = useState<AuditResult | null>(null)
@@ -25,6 +27,21 @@ export default function DashboardPage() {
   const [connection, setConnection] = useState('4G (Fast)')
   const [runCount, setRunCount] = useState(0)
   const [activeTab, setActiveTab] = useState<'overview' | 'opportunities' | 'diagnostics' | 'field' | 'siteaudit'>('overview')
+
+  // Restore last audit result from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        if (parsed.result) {
+          setResult(parsed.result)
+          setUrl(parsed.url || parsed.result.url || '')
+          setRunCount(1)
+        }
+      }
+    } catch { /* localStorage unavailable or corrupted — ignore */ }
+  }, [])
 
   const runAudit = async () => {
     if (!url.trim()) return
@@ -43,6 +60,9 @@ export default function DashboardPage() {
       if (!res.ok) throw new Error(data.error || 'Audit failed')
       setResult(data)
       setRunCount(c => c + 1)
+
+      // Persist last result to localStorage (survives page refresh)
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ result: data, url: targetUrl })) } catch { /* quota exceeded — ignore */ }
     } catch (e: any) {
       setError(e.message || 'Something went wrong. Check the URL and try again.')
     } finally {
