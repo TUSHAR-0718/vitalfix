@@ -44,11 +44,11 @@ export type AuditResult = {
     accessibility: number
     bestPractices: number
     seo: number
-  }
+  } | null
   cwv: {
     lcp: CwvMetric; inp: CwvMetric; cls: CwvMetric
     fcp: CwvMetric; ttfb: CwvMetric; si: CwvMetric; tbt: CwvMetric
-  }
+  } | null
   fieldData: {
     lcp: FieldDataMetric; inp: FieldDataMetric; cls: FieldDataMetric; fid: FieldDataMetric
     overallCategory: string
@@ -60,7 +60,8 @@ export type AuditResult = {
   diagnostics: {
     id: string; title: string; displayValue: string; score: number | null
   }[]
-  customAudit?: CustomAudit
+  customAudit?: CustomAudit | null
   healthScore?: number
   fromCache?: boolean
+  partial?: boolean
 }

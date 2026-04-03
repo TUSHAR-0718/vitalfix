@@ -270,7 +270,7 @@ export default function DashboardPage() {
             )}
 
             {/* ── Before/After comparison ── */}
-            {prevResult && (
+            {prevResult && prevResult.scores && result.scores && (
               <div className="glass-card" style={{ padding: '1.5rem', marginBottom: '1.5rem', borderColor: 'rgba(129,140,248,0.2)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
                   <GitCompare size={16} color="#818cf8" />

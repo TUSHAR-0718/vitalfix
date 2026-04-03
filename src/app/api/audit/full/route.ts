@@ -107,7 +107,7 @@ async function fetchLighthouse(url: string, strategy: string) {
       lcp: { value: auditVal('largest-contentful-paint'), score: auditScore('largest-contentful-paint'), numericValue: audit('largest-contentful-paint')?.numericValue ?? 0 },
       inp: {
         value: auditVal('interaction-to-next-paint') !== 'N/A' ? auditVal('interaction-to-next-paint') : auditVal('total-blocking-time'),
-        score: auditScore('interaction-to-next-paint') || auditScore('total-blocking-time'),
+        score: audit('interaction-to-next-paint')?.score != null ? auditScore('interaction-to-next-paint') : auditScore('total-blocking-time'),
         numericValue: audit('interaction-to-next-paint')?.numericValue ?? audit('total-blocking-time')?.numericValue ?? 0,
       },
       cls: { value: auditVal('cumulative-layout-shift'), score: auditScore('cumulative-layout-shift'), numericValue: audit('cumulative-layout-shift')?.numericValue ?? 0 },

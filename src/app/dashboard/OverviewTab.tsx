@@ -4,6 +4,17 @@ import type { AuditResult } from './types'
 import { scoreColor, waterfallItems, typeColors, filmStrip } from './utils'
 
 export default function OverviewTab({ result }: { result: AuditResult }) {
+  if (!result.cwv) {
+    return (
+      <div className="glass-card" style={{ padding: '2rem', textAlign: 'center' }}>
+        <p style={{ fontWeight: 700, color: 'var(--text-secondary)', marginBottom: '0.5rem' }}>Lab metrics unavailable</p>
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
+          PageSpeed Insights did not return lab data for this audit. Only the Site Audit results are available.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div>
       <div className="stagger" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
@@ -16,7 +27,7 @@ export default function OverviewTab({ result }: { result: AuditResult }) {
           { key: 'tbt', label: 'TBT', full: 'Total Blocking Time', color: '#ef4444' },
           { key: 'si', label: 'SI', full: 'Speed Index', color: '#f59e0b' },
         ] as const).map(m => {
-          const data = result.cwv[m.key]
+          const data = result.cwv![m.key]
           return (
             <div key={m.key} className="glass-card" style={{ padding: '1.5rem', borderColor: `${m.color}33` }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>

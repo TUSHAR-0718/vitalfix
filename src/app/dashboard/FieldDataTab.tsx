@@ -29,15 +29,15 @@ export default function FieldDataTab({ result }: { result: AuditResult }) {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
             {([
-              { label: 'LCP (p75)', data: result.fieldData.lcp, unit: 'ms' },
-              { label: 'INP (p75)', data: result.fieldData.inp, unit: 'ms' },
-              { label: 'CLS (p75)', data: result.fieldData.cls, unit: '' },
-              { label: 'FID (p75)', data: result.fieldData.fid, unit: 'ms' },
+              { label: 'LCP (p75)', data: result.fieldData.lcp, format: (v: number) => `${(v / 1000).toFixed(1)} s` },
+              { label: 'INP (p75)', data: result.fieldData.inp, format: (v: number) => `${v} ms` },
+              { label: 'CLS (p75)', data: result.fieldData.cls, format: (v: number) => (v / 100).toFixed(2) },
+              { label: 'FID (p75)', data: result.fieldData.fid, format: (v: number) => `${v} ms` },
             ]).filter(m => m.data).map(m => (
               <div key={m.label} style={{ padding: '1.25rem', borderRadius: 10, background: 'var(--bg)', border: '1px solid var(--border)' }}>
                 <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.5rem', fontWeight: 600 }}>{m.label}</div>
                 <div style={{ fontSize: '1.5rem', fontWeight: 900, fontFamily: 'monospace', color: fieldCatColor(m.data!.category), lineHeight: 1, marginBottom: '0.25rem' }}>
-                  {m.data!.p75}{m.unit}
+                  {m.format(m.data!.p75)}
                 </div>
                 <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '0.15rem 0.5rem', borderRadius: 4, background: `${fieldCatColor(m.data!.category)}15`, color: fieldCatColor(m.data!.category) }}>
                   {m.data!.category}
