@@ -28,12 +28,25 @@ export function getCached<T>(key: string): T | null {
 }
 
 export function setCache<T>(key: string, data: T, ttl = DEFAULT_TTL): void {
+  // Periodically clean expired entries to prevent stale memory usage
+  cleanupExpired()
   // Evict oldest if at capacity
   if (store.size >= MAX_ENTRIES) {
     const oldest = store.keys().next().value
     if (oldest) store.delete(oldest)
   }
   store.set(key, { data, expiresAt: Date.now() + ttl })
+}
+
+// Clean expired entries at most once per minute
+let lastCacheCleanup = 0
+function cleanupExpired() {
+  const now = Date.now()
+  if (now - lastCacheCleanup < 60_000) return
+  lastCacheCleanup = now
+  store.forEach((entry, key) => {
+    if (now > entry.expiresAt) store.delete(key)
+  })
 }
 
 export function clearCache(): void {

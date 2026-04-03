@@ -45,7 +45,8 @@ export async function checkBrokenLinks(fetched: FetchResult): Promise<CategoryRe
       })
     )
 
-    for (const r of results) {
+    for (let j = 0; j < results.length; j++) {
+      const r = results[j]
       if (r.status === 'fulfilled') {
         const { link, res } = r.value
         if (!res.ok) {
@@ -64,7 +65,7 @@ export async function checkBrokenLinks(fetched: FetchResult): Promise<CategoryRe
         }
       } else {
         failed++
-        const link = batch[results.indexOf(r)]
+        const link = batch[j]
         findings.push({
           id: `broken-link-${failed}`,
           title: 'Link check failed (timeout)',

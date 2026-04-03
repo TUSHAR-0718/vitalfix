@@ -1,98 +1,23 @@
 'use client'
 import { useState } from 'react'
-import { Search, AlertTriangle, ArrowRight, Terminal, Globe, Wifi, Smartphone, Monitor, MapPin, GitCompare, Zap, BarChart3, Eye, Shield, Star, ExternalLink, RefreshCw, CheckCircle, XCircle, ShieldCheck, Link2, Image, Code, Type, FileText, Accessibility } from 'lucide-react'
+import { Search, AlertTriangle, ArrowRight, Terminal, Globe, Wifi, Smartphone, Monitor, MapPin, GitCompare, Zap, BarChart3, Eye, ShieldCheck, Star, ExternalLink, RefreshCw, CheckCircle, XCircle } from 'lucide-react'
 import ScoreRing from '@/components/ScoreRing'
 import Link from 'next/link'
-
-// ── Types ──────────────────────────────────────────
-type CwvMetric = { value: string; score: number; numericValue?: number }
-type FieldDataMetric = { p75: number; category: string } | null
-type Severity = 'critical' | 'moderate' | 'minor' | 'info'
-type AuditFinding = { id: string; title: string; description: string; severity: Severity; category: string; value?: string; element?: string }
-type CategoryResult = { category: string; label: string; score: number; passed: number; failed: number; findings: AuditFinding[] }
-type CustomAudit = { url: string; fetchedAt: string; duration: number; overallScore: number; categories: CategoryResult[]; totalFindings: number; critical: number; moderate: number; minor: number }
-
-type AuditResult = {
-  url: string
-  strategy: string
-  fetchedAt: string
-  lighthouseVersion?: string
-  scores: { performance: number; accessibility: number; bestPractices: number; seo: number }
-  cwv: {
-    lcp: CwvMetric; inp: CwvMetric; cls: CwvMetric
-    fcp: CwvMetric; ttfb: CwvMetric; si: CwvMetric; tbt: CwvMetric
-  }
-  fieldData: {
-    lcp: FieldDataMetric; inp: FieldDataMetric; cls: FieldDataMetric; fid: FieldDataMetric
-    overallCategory: string
-  } | null
-  opportunities: { id: string; title: string; description: string; score: number; displayValue: string; impact: string }[]
-  diagnostics: { id: string; title: string; displayValue: string; score: number | null }[]
-  customAudit?: CustomAudit
-  healthScore?: number
-  fromCache?: boolean
-}
-
-// ── Simulated waterfall (always shown) ──
-const waterfallItems = [
-  { label: 'Document (HTML)', type: 'html',  color: '#818cf8', offset: 0,   width: 12 },
-  { label: 'main.css',        type: 'css',   color: '#60a5fa', offset: 10,  width: 8 },
-  { label: 'runtime.js',      type: 'js',    color: '#fbbf24', offset: 12,  width: 18 },
-  { label: 'hero-image.webp', type: 'img',   color: '#34d399', offset: 14,  width: 22 },
-  { label: 'Inter font',      type: 'font',  color: '#a78bfa', offset: 16,  width: 14 },
-  { label: 'app.chunk.js',    type: 'js',    color: '#fbbf24', offset: 22,  width: 30 },
-  { label: 'analytics.js',    type: 'js',    color: '#fbbf24', offset: 30,  width: 20 },
-  { label: '/api/data',       type: 'xhr',   color: '#f87171', offset: 35,  width: 25 },
-  { label: 'lazy-component',  type: 'js',    color: '#fbbf24', offset: 50,  width: 18 },
-  { label: 'thumbnail.webp',  type: 'img',   color: '#34d399', offset: 55,  width: 12 },
-]
-const typeColors: Record<string, string> = {
-  html: '#818cf8', css: '#60a5fa', js: '#fbbf24', img: '#34d399', font: '#a78bfa', xhr: '#f87171'
-}
-
-const filmStrip = [
-  { label: '0.0s', fill: 5 }, { label: '0.5s', fill: 22 },
-  { label: '1.0s', fill: 48 }, { label: '1.5s', fill: 71 },
-  { label: '2.0s', fill: 88 }, { label: '2.5s', fill: 100 },
-]
-
-const impactColor: Record<string, string> = { high: '#f87171', medium: '#fbbf24', low: '#34d399' }
-const catColor: Record<string, string> = { LCP: '#60a5fa', INP: '#34d399', CLS: '#fbbf24', General: '#818cf8' }
-const severityColor: Record<string, string> = { critical: '#f87171', moderate: '#fbbf24', minor: '#60a5fa', info: 'var(--text-muted)' }
-const categoryIcon: Record<string, any> = {
-  'broken-links': Link2, images: Image, assets: Code, 'meta-tags': FileText,
-  headings: Type, security: ShieldCheck, mobile: Smartphone, accessibility: Accessibility,
-}
+import type { AuditResult } from './types'
+import { scoreColor, scoreLabel, fieldCatColor } from './utils'
+import OverviewTab from './OverviewTab'
+import OpportunitiesTab from './OpportunitiesTab'
+import DiagnosticsTab from './DiagnosticsTab'
+import FieldDataTab from './FieldDataTab'
+import SiteAuditTab from './SiteAuditTab'
 
 const connections = ['4G (Fast)', '4G (Slow)', '3G', 'Cable']
 const locations = ['US East (Virginia)', 'EU West (London)', 'Asia (Singapore)', 'AU (Sydney)']
 
-// ── Score color helper ──
-const scoreColor = (s: number) => s >= 90 ? '#34d399' : s >= 50 ? '#fbbf24' : '#f87171'
-const scoreLabel = (s: number) => s >= 90 ? 'Good' : s >= 50 ? 'Needs Improvement' : 'Poor'
-
-const fieldCatColor = (cat: string) => {
-  if (cat === 'FAST') return '#34d399'
-  if (cat === 'AVERAGE') return '#fbbf24'
-  return '#f87171'
-}
-
-// ── Category score card ──
-function CategoryScore({ label, score, color }: { label: string; score: number; color: string }) {
-  return (
-    <div style={{ textAlign: 'center' }}>
-      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.5rem' }}>{label}</div>
-      <div style={{ fontSize: '2rem', fontWeight: 900, color, fontFamily: 'JetBrains Mono, monospace', lineHeight: 1 }}>{score}</div>
-      <div style={{ fontSize: '0.7rem', marginTop: '0.3rem', color, fontWeight: 600 }}>{scoreLabel(score)}</div>
-    </div>
-  )
-}
-
-// ── Main component ──
 export default function DashboardPage() {
   const [url, setUrl] = useState('')
   const [result, setResult] = useState<AuditResult | null>(null)
-  const [prevResult, setprevResult] = useState<AuditResult | null>(null)
+  const [prevResult, setPrevResult] = useState<AuditResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [device, setDevice] = useState<'mobile' | 'desktop'>('mobile')
@@ -108,7 +33,7 @@ export default function DashboardPage() {
 
     setLoading(true)
     setError(null)
-    setprevResult(result)
+    setPrevResult(result)
     setResult(null)
     setActiveTab('overview')
 
@@ -247,7 +172,7 @@ export default function DashboardPage() {
               </span>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>·</span>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                {result.strategy} · Lighthouse {result.lighthouseVersion} · {new Date(result.fetchedAt).toLocaleTimeString()}
+                {result.strategy}{result.lighthouseVersion ? ` · Lighthouse ${result.lighthouseVersion}` : ''} · {new Date(result.fetchedAt).toLocaleTimeString()}
               </span>
               <a href={`https://pagespeed.web.dev/analysis?url=${encodeURIComponent(result.url)}`} target="_blank" rel="noreferrer" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.78rem', color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}>
                 View on PSI <ExternalLink size={12} />
@@ -271,7 +196,7 @@ export default function DashboardPage() {
                   <ScoreRing score={result.healthScore} size={130} color={scoreColor(result.healthScore)} label="Health" />
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'center', gap: '2rem', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-                  <span>Lighthouse: <strong style={{ color: scoreColor(result.scores.performance) }}>{result.scores.performance}</strong> (60%)</span>
+                  <span>Lighthouse: <strong style={{ color: scoreColor(result.scores?.performance ?? 0) }}>{result.scores?.performance ?? '—'}</strong> (60%)</span>
                   <span>Site Audit: <strong style={{ color: scoreColor(result.customAudit?.overallScore ?? 0) }}>{result.customAudit?.overallScore ?? '—'}</strong> (40%)</span>
                 </div>
                 {result.customAudit && result.customAudit.totalFindings > 0 && (
@@ -284,7 +209,8 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {/* ── Performance Score — HERO ── */}
+            {/* ── Performance Score — HERO (only shown when PSI data available) ── */}
+            {result.scores && (
             <div className="glass-card" style={{ padding: '2rem', marginBottom: '1.5rem', background: 'linear-gradient(160deg, rgba(129,140,248,0.06), transparent)', textAlign: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
                 <Zap size={16} color="#818cf8" />
@@ -316,6 +242,7 @@ export default function DashboardPage() {
                 ))}
               </div>
             </div>
+            )}
 
             {/* ── Lab vs Field explainer — shown when CrUX data exists ── */}
             {result.fieldData && (
@@ -327,7 +254,7 @@ export default function DashboardPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
                   <div style={{ padding: '1rem', borderRadius: 10, background: 'var(--bg)', border: '1px solid var(--border)', textAlign: 'center' }}>
                     <div style={{ fontSize: '0.68rem', fontWeight: 700, color: '#60a5fa', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '0.4rem' }}>Lab (Lighthouse)</div>
-                    <div style={{ fontSize: '2rem', fontWeight: 900, color: scoreColor(result.scores.performance), fontFamily: 'JetBrains Mono, monospace' }}>{result.scores.performance}</div>
+                    <div style={{ fontSize: '2rem', fontWeight: 900, color: scoreColor(result.scores?.performance ?? 0), fontFamily: 'JetBrains Mono, monospace' }}>{result.scores?.performance ?? '—'}</div>
                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>Simulated · Single run</div>
                   </div>
                   <div style={{ padding: '1rem', borderRadius: 10, background: 'var(--bg)', border: '1px solid var(--border)', textAlign: 'center' }}>
@@ -389,273 +316,12 @@ export default function DashboardPage() {
               ))}
             </div>
 
-            {/* ── Overview tab: CWV metrics ── */}
-            {activeTab === 'overview' && (
-              <div>
-                <div className="stagger" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
-                  {([
-                    { key: 'lcp', label: 'LCP', full: 'Largest Contentful Paint', color: '#60a5fa' },
-                    { key: 'inp', label: 'INP', full: 'Interaction to Next Paint', color: '#34d399' },
-                    { key: 'cls', label: 'CLS', full: 'Cumulative Layout Shift', color: '#fbbf24' },
-                    { key: 'fcp', label: 'FCP', full: 'First Contentful Paint', color: '#a78bfa' },
-                    { key: 'ttfb', label: 'TTFB', full: 'Server Response Time', color: '#ec4899' },
-                    { key: 'tbt', label: 'TBT', full: 'Total Blocking Time', color: '#ef4444' },
-                    { key: 'si', label: 'SI', full: 'Speed Index', color: '#f59e0b' },
-                  ] as const).map(m => {
-                    const data = result.cwv[m.key]
-                    return (
-                      <div key={m.key} className="glass-card" style={{ padding: '1.5rem', borderColor: `${m.color}33` }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                          <span style={{ fontSize: '0.72rem', fontWeight: 700, color: m.color, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{m.key.toUpperCase()}</span>
-                          <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '0.15rem 0.4rem', borderRadius: 4, background: `${scoreColor(data.score)}18`, color: scoreColor(data.score) }}>
-                            {scoreLabel(data.score)}
-                          </span>
-                        </div>
-                        <div style={{ fontSize: '1.8rem', fontWeight: 900, color: scoreColor(data.score), fontFamily: 'JetBrains Mono, monospace', lineHeight: 1, marginBottom: '0.3rem' }}>
-                          {data.value}
-                        </div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{m.full}</div>
-                        {/* Score bar */}
-                        <div style={{ height: 4, borderRadius: 2, background: 'var(--border)', marginTop: '0.75rem', overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${data.score}%`, background: scoreColor(data.score), borderRadius: 2, transition: 'width 0.5s ease' }} />
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-
-                {/* Waterfall chart */}
-                <div className="glass-card" style={{ padding: '1.75rem', marginBottom: '1.5rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.5rem' }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#34d399' }} />
-                    <h2 style={{ fontWeight: 700, fontSize: '1rem' }}>Network Waterfall</h2>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginLeft: 'auto', fontFamily: 'monospace' }}>simulated layout · real metrics above</span>
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-                    {Object.entries(typeColors).map(([type, color]) => (
-                      <div key={type} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
-                        <div style={{ width: 10, height: 10, borderRadius: 2, background: color }} />
-                        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 600 }}>{type}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    {waterfallItems.map((item, i) => (
-                      <div key={item.label} style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: '0.75rem', alignItems: 'center' }}>
-                        <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: 'monospace' }}>{item.label}</span>
-                        <div style={{ position: 'relative', height: 22, background: 'var(--bg)', borderRadius: 4, overflow: 'hidden' }}>
-                          <div className="waterfall-bar" style={{ position: 'absolute', left: `${item.offset}%`, width: `${item.width}%`, background: `linear-gradient(90deg, ${item.color}cc, ${item.color})`, animationDelay: `${i * 60}ms` }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Filmstrip */}
-                <div className="glass-card" style={{ padding: '1.75rem', marginBottom: '1.5rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1rem' }}>
-                    <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#60a5fa' }} />
-                    <h2 style={{ fontWeight: 700, fontSize: '1rem' }}>Filmstrip View</h2>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>simulated page-load progression</span>
-                  </div>
-                  <div style={{ display: 'flex', gap: '0.75rem', overflowX: 'auto', paddingBottom: '0.5rem' }}>
-                    {filmStrip.map((frame, i) => (
-                      <div key={frame.label} className="filmstrip-frame" style={{ animationDelay: `${i * 80}ms`, minWidth: 100 }}>
-                        <div style={{ height: 70, background: 'var(--bg-secondary)', position: 'relative', overflow: 'hidden' }}>
-                          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: `${frame.fill}%`, background: 'linear-gradient(180deg, transparent, rgba(96,165,250,0.15))' }} />
-                          {frame.fill > 10 && <div style={{ position: 'absolute', top: 8, left: 8, right: 8, height: 8, borderRadius: 2, background: 'var(--border)', opacity: Math.min(1, frame.fill / 30) }} />}
-                          {frame.fill > 30 && <div style={{ position: 'absolute', top: 22, left: 8, right: 20, height: 18, borderRadius: 3, background: 'rgba(96,165,250,0.25)', opacity: Math.min(1, (frame.fill - 20) / 30) }} />}
-                          {frame.fill > 60 && <div style={{ position: 'absolute', top: 46, left: 8, right: 30, height: 6, borderRadius: 2, background: 'var(--border)', opacity: Math.min(1, (frame.fill - 50) / 30) }} />}
-                          {frame.fill >= 100 && <div style={{ position: 'absolute', inset: 0, border: '2px solid #43e97b', borderRadius: 0 }} />}
-                        </div>
-                        <div style={{ padding: '0.4rem', textAlign: 'center' }}>
-                          <div style={{ fontSize: '0.7rem', fontWeight: 700, fontFamily: 'monospace', color: frame.fill >= 100 ? '#34d399' : 'var(--text-muted)' }}>{frame.label}</div>
-                          <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)' }}>{frame.fill}% loaded</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── Opportunities tab ── */}
-            {activeTab === 'opportunities' && (
-              <div className="glass-card" style={{ padding: '2rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
-                  <Zap size={18} color="#fbbf24" />
-                  <h2 style={{ fontWeight: 700, fontSize: '1.05rem' }}>Top Opportunities</h2>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>sorted by impact</span>
-                </div>
-                {result.opportunities.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '2rem', color: '#34d399' }}>
-                    <CheckCircle size={32} style={{ margin: '0 auto 0.75rem' }} />
-                    <p style={{ fontWeight: 700 }}>No major opportunities found!</p>
-                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>This page is well-optimized.</p>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                    {result.opportunities.map(op => (
-                      <div key={op.id} style={{ padding: '1rem 1.25rem', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)', transition: 'all 0.2s' }}>
-                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.75rem' }}>
-                          <div style={{ width: 8, height: 8, borderRadius: '50%', background: impactColor[op.impact], flexShrink: 0, marginTop: 5, boxShadow: `0 0 6px ${impactColor[op.impact]}` }} />
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.25rem' }}>
-                              <span style={{ fontWeight: 700, fontSize: '0.875rem' }}>{op.title}</span>
-                              {op.displayValue && (
-                                <span style={{ fontSize: '0.72rem', fontFamily: 'monospace', color: '#fbbf24', padding: '0.1rem 0.4rem', borderRadius: 4, background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.2)' }}>
-                                  {op.displayValue}
-                                </span>
-                              )}
-                            </div>
-                            <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>{op.description?.slice(0, 160)}{op.description?.length > 160 ? '…' : ''}</p>
-                          </div>
-                          <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '0.15rem 0.5rem', borderRadius: 5, background: `${impactColor[op.impact]}18`, color: impactColor[op.impact], flexShrink: 0 }}>
-                            {op.impact}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Diagnostics tab ── */}
-            {activeTab === 'diagnostics' && (
-              <div className="glass-card" style={{ padding: '2rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
-                  <Eye size={18} color="#60a5fa" />
-                  <h2 style={{ fontWeight: 700, fontSize: '1.05rem' }}>Diagnostics</h2>
-                </div>
-                {result.diagnostics.length === 0 ? (
-                  <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>No diagnostic data available for this URL.</p>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-                    {result.diagnostics.map(d => (
-                      <div key={d.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.85rem 1.1rem', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg)' }}>
-                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: d.score === null ? 'var(--blue)' : d.score >= 0.9 ? '#34d399' : d.score >= 0.5 ? '#fbbf24' : '#f87171', flexShrink: 0 }} />
-                        <span style={{ fontSize: '0.875rem', flex: 1 }}>{d.title}</span>
-                        {d.displayValue && (
-                          <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{d.displayValue}</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Field Data (CrUX) tab ── */}
-            {activeTab === 'field' && (
-              <div className="glass-card" style={{ padding: '2rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
-                  <Star size={18} color="#a78bfa" />
-                  <h2 style={{ fontWeight: 700, fontSize: '1.05rem' }}>Field Data (Chrome UX Report)</h2>
-                  <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>Real user data · p75</span>
-                </div>
-                {!result.fieldData ? (
-                  <div style={{ textAlign: 'center', padding: '2rem' }}>
-                    <Eye size={28} color="var(--text-muted)" style={{ margin: '0 auto 0.75rem' }} />
-                    <p style={{ fontWeight: 700, color: 'var(--text-secondary)' }}>No CrUX field data available</p>
-                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.25rem', maxWidth: 380, margin: '0.5rem auto 0' }}>
-                      Field data (real user experience) is only available for pages with sufficient Chrome traffic. Try a high-traffic URL.
-                    </p>
-                  </div>
-                ) : (
-                  <div>
-                    <div style={{ marginBottom: '1.5rem', padding: '0.75rem 1.25rem', borderRadius: 8, background: fieldCatColor(result.fieldData.overallCategory) === '#34d399' ? 'rgba(52,211,153,0.08)' : 'rgba(251,191,36,0.08)', display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: fieldCatColor(result.fieldData.overallCategory) }} />
-                      <span style={{ fontSize: '0.85rem', fontWeight: 700, color: fieldCatColor(result.fieldData.overallCategory) }}>
-                        Overall CrUX: {result.fieldData.overallCategory}
-                      </span>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
-                      {([
-                        { label: 'LCP (p75)', data: result.fieldData.lcp, unit: 'ms' },
-                        { label: 'INP (p75)', data: result.fieldData.inp, unit: 'ms' },
-                        { label: 'CLS (p75)', data: result.fieldData.cls, unit: '' },
-                        { label: 'FID (p75)', data: result.fieldData.fid, unit: 'ms' },
-                      ]).filter(m => m.data).map(m => (
-                        <div key={m.label} style={{ padding: '1.25rem', borderRadius: 10, background: 'var(--bg)', border: '1px solid var(--border)' }}>
-                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '0.5rem', fontWeight: 600 }}>{m.label}</div>
-                          <div style={{ fontSize: '1.5rem', fontWeight: 900, fontFamily: 'monospace', color: fieldCatColor(m.data!.category), lineHeight: 1, marginBottom: '0.25rem' }}>
-                            {m.data!.p75}{m.unit}
-                          </div>
-                          <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '0.15rem 0.5rem', borderRadius: 4, background: `${fieldCatColor(m.data!.category)}15`, color: fieldCatColor(m.data!.category) }}>
-                            {m.data!.category}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Site Audit tab ── */}
-            {activeTab === 'siteaudit' && (
-              <div>
-                {!result.customAudit ? (
-                  <div className="glass-card" style={{ padding: '2rem', textAlign: 'center' }}>
-                    <p style={{ color: 'var(--text-muted)' }}>Custom audit data not available</p>
-                  </div>
-                ) : (
-                  <div className="stagger">
-                    {/* Summary bar */}
-                    <div className="glass-card" style={{ padding: '1.25rem 1.5rem', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
-                      <div>
-                        <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Custom Audit Score</div>
-                        <div style={{ fontSize: '2rem', fontWeight: 900, color: scoreColor(result.customAudit.overallScore), fontFamily: 'JetBrains Mono, monospace' }}>{result.customAudit.overallScore}</div>
-                      </div>
-                      <div style={{ width: 1, height: 40, background: 'var(--border)' }} />
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-                        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{result.customAudit.totalFindings}</span> findings across{' '}
-                        <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{result.customAudit.categories.length}</span> categories
-                      </div>
-                      <div style={{ marginLeft: 'auto', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
-                        Completed in {(result.customAudit.duration / 1000).toFixed(1)}s
-                      </div>
-                    </div>
-
-                    {/* Category cards */}
-                    {result.customAudit.categories.map(cat => {
-                      const IconComp = categoryIcon[cat.category] || Shield
-                      return (
-                        <div key={cat.category} className="glass-card" style={{ padding: '1.5rem', marginBottom: '1rem' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '1rem' }}>
-                            <IconComp size={16} color={scoreColor(cat.score)} />
-                            <span style={{ fontWeight: 700, fontSize: '0.95rem' }}>{cat.label}</span>
-                            <span style={{ fontSize: '1.1rem', fontWeight: 900, marginLeft: 'auto', color: scoreColor(cat.score), fontFamily: 'JetBrains Mono, monospace' }}>{cat.score}</span>
-                            <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>{cat.passed} passed · {cat.failed} failed</span>
-                          </div>
-                          {cat.findings.length > 0 && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                              {cat.findings.map((f, i) => (
-                                <div key={f.id || i} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.6rem', padding: '0.7rem 1rem', borderRadius: 8, background: 'var(--bg)', border: '1px solid var(--border)' }}>
-                                  <span style={{ fontSize: '0.65rem', fontWeight: 700, padding: '0.15rem 0.45rem', borderRadius: 4, background: `${severityColor[f.severity]}15`, color: severityColor[f.severity], border: `1px solid ${severityColor[f.severity]}30`, textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', flexShrink: 0, marginTop: 2 }}>{f.severity}</span>
-                                  <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.15rem' }}>{f.title}</div>
-                                    <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.5 }}>{f.description}</div>
-                                    {f.element && <div style={{ fontSize: '0.72rem', fontFamily: 'JetBrains Mono, monospace', color: 'var(--text-muted)', marginTop: '0.3rem', padding: '0.3rem 0.5rem', borderRadius: 4, background: 'rgba(129,140,248,0.06)', wordBreak: 'break-all' }}>{f.element}</div>}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          {cat.findings.length === 0 && (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1rem', borderRadius: 8, background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.15)' }}>
-                              <CheckCircle size={14} color="#34d399" />
-                              <span style={{ fontSize: '0.82rem', color: '#34d399', fontWeight: 600 }}>All checks passed</span>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
+            {/* ── Tab content ── */}
+            {activeTab === 'overview' && <OverviewTab result={result} />}
+            {activeTab === 'opportunities' && <OpportunitiesTab result={result} />}
+            {activeTab === 'diagnostics' && <DiagnosticsTab result={result} />}
+            {activeTab === 'field' && <FieldDataTab result={result} />}
+            {activeTab === 'siteaudit' && <SiteAuditTab result={result} />}
 
             {/* ── CTA ── */}
             <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginTop: '2rem' }}>

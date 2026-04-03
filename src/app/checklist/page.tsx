@@ -1,6 +1,8 @@
 'use client'
 import { useState } from 'react'
-import { CheckSquare, Square, RefreshCw, Download, FileText } from 'lucide-react'
+import { CheckSquare, Square, RefreshCw, Download } from 'lucide-react'
+import ScoreRing from '@/components/ScoreRing'
+import { scoreColor as getScoreColor } from '../dashboard/utils'
 
 type CheckItem = { id: string; text: string; category: string; impact: 'high' | 'medium' | 'low' }
 
@@ -56,6 +58,9 @@ const items: CheckItem[] = [
 
 const impactColor: Record<string, string> = { high: '#f87171', medium: '#fbbf24', low: '#34d399' }
 const catColor: Record<string, string> = { LCP: '#60a5fa', INP: '#34d399', CLS: '#fbbf24', General: '#818cf8' }
+
+// Reuse shared score thresholds (80/50 for checklist completion %)
+const checklistScoreColor = (pct: number) => pct >= 80 ? '#34d399' : pct >= 50 ? '#fbbf24' : '#f87171'
 const categories = ['All', 'LCP', 'INP', 'CLS', 'General']
 
 export default function ChecklistPage() {
@@ -101,9 +106,7 @@ export default function ChecklistPage() {
   const done = filtered.filter(i => checked.has(i.id)).length
   const pct = total === 0 ? 0 : Math.round((done / total) * 100)
 
-  const scoreColor = pct >= 80 ? '#34d399' : pct >= 50 ? '#fbbf24' : '#f87171'
-  const circumference = 2 * Math.PI * 45
-  const offset = circumference - (pct / 100) * circumference
+  const ringColor = checklistScoreColor(pct)
 
   return (
     <div style={{ minHeight: '100vh' }}>
@@ -127,7 +130,7 @@ export default function ChecklistPage() {
             {/* Filters */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1.75rem', flexWrap: 'wrap' }}>
               {categories.map(c => (
-                <button key={c} onClick={() => setFilter(c)} style={{
+                <button key={c} onClick={() => setFilter(c)} aria-label={`Filter by ${c}`} aria-pressed={filter === c} style={{
                   padding: '0.35rem 0.9rem', borderRadius: 100,
                   background: filter === c
                     ? (c === 'All' ? 'var(--accent)' : `${catColor[c]}22`)
@@ -139,7 +142,7 @@ export default function ChecklistPage() {
                   {c}
                 </button>
               ))}
-              <button onClick={reset} style={{
+              <button onClick={reset} aria-label="Reset all checks" style={{
                 marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.35rem',
                 padding: '0.35rem 0.85rem', borderRadius: 100,
                 background: 'var(--bg-card)', border: '1px solid var(--border)',
@@ -147,7 +150,7 @@ export default function ChecklistPage() {
               }}>
                 <RefreshCw size={12} /> Reset
               </button>
-              <button onClick={exportResults} style={{
+              <button onClick={exportResults} aria-label="Export audit results" style={{
                 display: 'flex', alignItems: 'center', gap: '0.35rem',
                 padding: '0.35rem 0.85rem', borderRadius: 100,
                 background: done > 0 ? 'rgba(96,165,250,0.1)' : 'var(--bg-card)',
@@ -208,21 +211,8 @@ export default function ChecklistPage() {
               </p>
 
               {/* Circular progress */}
-              <div style={{ position: 'relative', width: 110, height: 110, margin: '0 auto 1rem' }}>
-                <svg width="110" height="110" style={{ transform: 'rotate(-90deg)' }}>
-                  <circle cx="55" cy="55" r="45" fill="none" stroke="var(--border)" strokeWidth="8" />
-                  <circle
-                    cx="55" cy="55" r="45" fill="none"
-                    stroke={scoreColor} strokeWidth="8"
-                    strokeLinecap="round"
-                    strokeDasharray={circumference}
-                    strokeDashoffset={offset}
-                    style={{ transition: 'stroke-dashoffset 0.5s ease, stroke 0.3s ease' }}
-                  />
-                </svg>
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                  <span style={{ fontSize: '1.6rem', fontWeight: 900, color: scoreColor }}>{pct}%</span>
-                </div>
+              <div style={{ margin: '0 auto 1rem', width: 110, display: 'flex', justifyContent: 'center' }}>
+                <ScoreRing score={pct} size={110} strokeWidth={8} color={ringColor} label="" />
               </div>
 
               <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '1.5rem' }}>
@@ -244,7 +234,7 @@ export default function ChecklistPage() {
 
               <p style={{
                 fontSize: '0.78rem', fontWeight: 700,
-                color: pct >= 80 ? '#34d399' : pct >= 50 ? '#fbbf24' : '#f87171',
+                color: ringColor,
                 padding: '0.5rem', borderRadius: 8,
                 background: pct >= 80 ? 'rgba(52,211,153,0.1)' : pct >= 50 ? 'rgba(251,191,36,0.1)' : 'rgba(248,113,113,0.1)',
               }}>

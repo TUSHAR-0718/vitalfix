@@ -3,6 +3,7 @@
 import { FetchResult } from './types'
 
 const DEFAULT_TIMEOUT = 10_000 // 10s
+const MAX_BODY_BYTES = 5 * 1024 * 1024 // 5 MB
 const USER_AGENT = 'VitalFix-AuditBot/1.0 (+https://vitalfix.dev)'
 
 export async function fetchPage(url: string, timeout = DEFAULT_TIMEOUT): Promise<FetchResult> {
@@ -21,8 +22,25 @@ export async function fetchPage(url: string, timeout = DEFAULT_TIMEOUT): Promise
       redirect: 'follow',
     })
 
+    // Guard: reject non-HTML responses before reading the body
+    const contentType = res.headers.get('content-type') || ''
+    if (!contentType.includes('text/html') && !contentType.includes('application/xhtml')) {
+      throw new Error(`URL returned non-HTML content-type: ${contentType.split(';')[0]}`)
+    }
+
+    // Guard: reject oversized responses to prevent OOM
+    const contentLength = parseInt(res.headers.get('content-length') || '0', 10)
+    if (contentLength > MAX_BODY_BYTES) {
+      throw new Error(`Response too large (${(contentLength / 1024 / 1024).toFixed(1)} MB). Max is 5 MB.`)
+    }
+
     const html = await res.text()
     const timing = Date.now() - start
+
+    // Post-read size check (content-length header may be absent)
+    if (html.length > MAX_BODY_BYTES) {
+      throw new Error(`Response body too large (${(html.length / 1024 / 1024).toFixed(1)} MB). Max is 5 MB.`)
+    }
 
     // Normalize headers to lowercase key map
     const headers: Record<string, string> = {}

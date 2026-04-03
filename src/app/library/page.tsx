@@ -888,6 +888,8 @@ export default function LibraryPage() {
             <button
               key={c}
               onClick={() => setActive(c)}
+              aria-label={`Filter by ${c}`}
+              aria-pressed={active === c}
               style={{
                 padding: '0.35rem 0.9rem', borderRadius: 100,
                 fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer', flexShrink: 0,

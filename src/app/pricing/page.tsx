@@ -166,7 +166,7 @@ export default function PricingPage() {
           <h2 style={{ fontSize: 'clamp(1.5rem, 3vw, 2rem)', fontWeight: 800, textAlign: 'center', marginBottom: '3rem', letterSpacing: '-0.02em' }}>
             Frequently Asked Questions
           </h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))', gap: '1.25rem', maxWidth: 920, margin: '0 auto' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(420px, 100%), 1fr))', gap: '1.25rem', maxWidth: 920, margin: '0 auto' }}>
             {faqs.map(f => (
               <div key={f.q} className="glass-card" style={{ padding: '1.5rem' }}>
                 <p style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>{f.q}</p>

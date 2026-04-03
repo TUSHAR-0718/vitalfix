@@ -47,7 +47,7 @@ export default function Footer() {
         </div>
 
         <div style={{ borderTop: '1px solid var(--border)', marginTop: '2rem', paddingTop: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
-          <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>© 2025 VitalFix</p>
+          <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>© {new Date().getFullYear()} VitalFix</p>
           <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Built for developers, by developers</p>
         </div>
       </div>

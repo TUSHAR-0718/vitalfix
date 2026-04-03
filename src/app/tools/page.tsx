@@ -280,7 +280,7 @@ export default function ToolsPage() {
         {/* Tab selector */}
         <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
           {tools.map(t => (
-            <button key={t.id} onClick={() => setActive(t.id)} style={{
+            <button key={t.id} onClick={() => setActive(t.id)} aria-label={`${t.label} tool`} aria-pressed={active === t.id} style={{
               padding: '0.6rem 1.25rem', borderRadius: 10, cursor: 'pointer', fontWeight: 600, fontSize: '0.9rem',
               transition: 'all 0.2s',
               background: active === t.id ? `${t.color}20` : 'var(--bg-card)',
@@ -292,7 +292,7 @@ export default function ToolsPage() {
           ))}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.6fr) minmax(0,1fr)', gap: '2rem', alignItems: 'start' }}>
+        <div className="tools-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.6fr) minmax(0,1fr)', gap: '2rem', alignItems: 'start' }}>
           {/* Tool panel */}
           <div className="glass-card" style={{ padding: '2rem' }}>
             <ActiveComponent />
@@ -334,6 +334,11 @@ export default function ToolsPage() {
           </div>
         </div>
       </div>
+      <style>{`
+        @media (max-width: 768px) {
+          .tools-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
     </div>
   )
 }
