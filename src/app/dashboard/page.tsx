@@ -177,27 +177,29 @@ export default function DashboardPage() {
         } catch (e: any) {
           clearTimeout(timeoutId)
 
-          // Check if this is an abort/timeout/network error (all are retryable)
-          const isTimeout = e.name === 'AbortError' || (e.message && (e.message.includes('timed out') || e.message.includes('timeout')))
-          const isNetworkError = e.message?.includes('NETWORK_ERROR') || e.message?.includes('Failed to fetch') || e.message?.includes('invalid response')
-          const isRetryable = isTimeout || isNetworkError
+          // ONLY retry on true client-side issues (browser abort, network drop).
+          // Server-returned errors (even with 'timeout' in the message) should NOT
+          // be retried — the server already tried its own fallbacks internally.
+          const isClientAbort = e.name === 'AbortError'
+          const isNetworkError = e.message?.includes('NETWORK_ERROR') || e.message?.includes('Failed to fetch')
+          const isRetryable = isClientAbort || isNetworkError
 
-          if (isTimeout) {
-            lastError = 'The audit timed out. The site may be slow or the PageSpeed Insights API is congested. Try again.'
+          if (isClientAbort) {
+            lastError = 'The client connection timed out. The audit server may still be processing — please try again.'
           } else if (isNetworkError) {
-            lastError = 'Could not connect to the audit server. The server may have timed out processing a complex page, or there\'s a network issue. Please try again.'
+            lastError = 'Could not connect to the audit server. Please check your connection and try again.'
           } else {
+            // Server-returned error — show exactly what the server said
             lastError = e.message || 'Something went wrong. Check the URL and try again.'
           }
 
-          // If it's a retryable error and we have retries left, try again
+          // Only retry on client-side transient errors, not server errors
           if (isRetryable && attempt < MAX_RETRIES) {
             attempt++
             setProgressMsg(`Retry ${attempt}/${MAX_RETRIES} — ${isNetworkError ? 'reconnecting' : 'trying again'}…`)
             continue
           }
 
-          // Non-timeout errors or exhausted retries: break out
           break
         }
       } catch (e: any) {
@@ -206,11 +208,8 @@ export default function DashboardPage() {
       }
     }
 
-    // Audit failed — restore previous result if available so page isn't blank
+    // Audit failed — show error (don't restore previous result, it causes confusion)
     setError(lastError)
-    if (prevResult) {
-      setResult(prevResult)
-    }
     stopProgressTimer()
     setLoading(false)
   }
@@ -368,9 +367,11 @@ export default function DashboardPage() {
                 <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>{error}</p>
                 <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
                   {error.includes('connect') || error.includes('NETWORK_ERROR') || error.includes('Failed to fetch')
-                    ? 'The audit server could not be reached. This may be a temporary issue — please retry in a few seconds.'
-                    : error.includes('timed out') || error.includes('timeout')
-                    ? 'The page took too long to audit. Try a simpler page, or switch between mobile/desktop mode.'
+                    ? 'The audit server could not be reached. Check your connection and retry.'
+                    : error.includes('timed out') || error.includes('timeout') || error.includes('PageSpeed')
+                    ? 'Google\'s PageSpeed API is congested or the site is too complex. Try switching between mobile ↔ desktop, or try a different URL.'
+                    : error.includes('Rate limit')
+                    ? 'Too many requests — wait a minute and try again.'
                     : 'Make sure the URL is publicly accessible and starts with http:// or https://'}
                 </p>
               </div>
@@ -379,8 +380,17 @@ export default function DashboardPage() {
               <button onClick={runAudit} className="btn-primary" style={{ fontSize: '0.8rem', padding: '0.45rem 1rem' }}>
                 <RefreshCw size={13} /> Retry
               </button>
-              {result && (
-                <button onClick={() => setError(null)} className="btn-secondary" style={{ fontSize: '0.8rem', padding: '0.45rem 1rem' }}>
+              {device === 'mobile' ? (
+                <button onClick={() => { setDevice('desktop'); setTimeout(runAudit, 100) }} className="btn-secondary" style={{ fontSize: '0.8rem', padding: '0.45rem 1rem' }}>
+                  <Monitor size={13} /> Try Desktop
+                </button>
+              ) : (
+                <button onClick={() => { setDevice('mobile'); setTimeout(runAudit, 100) }} className="btn-secondary" style={{ fontSize: '0.8rem', padding: '0.45rem 1rem' }}>
+                  <Smartphone size={13} /> Try Mobile
+                </button>
+              )}
+              {prevResult && (
+                <button onClick={() => { setError(null); setResult(prevResult) }} className="btn-secondary" style={{ fontSize: '0.8rem', padding: '0.45rem 1rem' }}>
                   View Previous Result
                 </button>
               )}
