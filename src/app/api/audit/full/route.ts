@@ -6,8 +6,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { runCustomAudit, calculateHealthScore } from '@/lib/audit-engine'
 import { cacheKey, getCached, setCache } from '@/lib/audit-engine/cache'
 
-// Vercel serverless function config — audit can take up to 45s
-export const maxDuration = 60
+// Vercel serverless function config — audit can take up to 120s
+export const maxDuration = 180
 
 // Warn at startup if PSI API key is missing (heavily rate-limited without it)
 if (!process.env.GOOGLE_PSI_API_KEY) {
@@ -73,8 +73,9 @@ function cleanupRateLimitMap() {
 // ── PSI fetch with dedicated timeout ──
 const PSI_ENDPOINT = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed'
 const CATEGORIES = ['performance', 'accessibility', 'best-practices', 'seo']
-const PSI_TIMEOUT = 30_000     // 30s for PSI specifically
-const GLOBAL_TIMEOUT = 45_000  // 45s for the entire audit
+const PSI_TIMEOUT = 90_000     // 90s for PSI — Google's API is slow for complex pages
+const CUSTOM_AUDIT_TIMEOUT = 60_000 // 60s for the custom audit engine
+const GLOBAL_TIMEOUT = 120_000 // 120s absolute cap for the entire handler
 
 async function fetchLighthouse(url: string, strategy: string) {
   const apiKey = process.env.GOOGLE_PSI_API_KEY
@@ -177,7 +178,7 @@ async function fetchLighthouse(url: string, strategy: string) {
     // Re-throw PSIError as-is; wrap AbortError with a clear message
     if (err instanceof PSIError) throw err
     if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new PSIError('PageSpeed Insights timed out after 30 seconds', 504)
+      throw new PSIError('PageSpeed Insights timed out after 90 seconds. The site may be too slow or complex.', 504)
     }
     throw err
   } finally {
@@ -241,20 +242,35 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ...cached, fromCache: true })
   }
 
-  // Global timeout with proper cleanup
+  // ── Run PSI and Custom Audit INDEPENDENTLY ──
+  // Each engine has its own timeout. One failing does NOT kill the other.
+  // A global safety-net timeout ensures the handler never hangs forever.
   let globalTimer: ReturnType<typeof setTimeout> | undefined
 
   try {
-    // Run Lighthouse + Custom Audit in parallel with graceful degradation.
-    // Promise.allSettled ensures one failure doesn't kill the other's results.
+    // Wrap custom audit with its own timeout so it runs independently of PSI
+    const customAuditWithTimeout = Promise.race([
+      runCustomAudit(parsedUrl.href),
+      new Promise<null>((resolve) =>
+        setTimeout(() => {
+          console.warn('[audit API] Custom audit timed out after 60s')
+          resolve(null)
+        }, CUSTOM_AUDIT_TIMEOUT)
+      ),
+    ])
+
+    // Run both engines in parallel — allSettled ensures neither kills the other
+    const auditPromise = Promise.allSettled([
+      fetchLighthouse(parsedUrl.href, strategy),
+      customAuditWithTimeout,
+    ])
+
+    // Global safety-net timeout (120s absolute cap)
     const settled = await Promise.race([
-      Promise.allSettled([
-        fetchLighthouse(parsedUrl.href, strategy),
-        runCustomAudit(parsedUrl.href),
-      ]),
+      auditPromise,
       new Promise<never>((_, reject) => {
         globalTimer = setTimeout(
-          () => reject(new Error('Audit timed out after 45 seconds')),
+          () => reject(new Error('Audit timed out after 120 seconds. The site may be too slow or complex — try again.')),
           GLOBAL_TIMEOUT,
         )
       }),
@@ -266,7 +282,7 @@ export async function GET(req: NextRequest) {
     const lighthouseResult = settled[0].status === 'fulfilled' ? settled[0].value : null
     const customAuditResult = settled[1].status === 'fulfilled' ? settled[1].value : null
 
-    // If both failed, return an error
+    // If both failed, return an error with details
     if (!lighthouseResult && !customAuditResult) {
       const psiErr = settled[0].status === 'rejected' ? settled[0].reason : null
       const customErr = settled[1].status === 'rejected' ? settled[1].reason : null
@@ -280,17 +296,17 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: message }, { status: 502 })
     }
 
-    // Log partial failures (non-blocking)
+    // Log partial failures (non-blocking) — one engine succeeded
     if (!lighthouseResult) {
       const reason = settled[0].status === 'rejected' ? settled[0].reason?.message : 'unknown'
       console.warn('[audit API] PSI failed, returning custom audit only:', reason)
     }
     if (!customAuditResult) {
-      const reason = settled[1].status === 'rejected' ? settled[1].reason?.message : 'unknown'
-      console.warn('[audit API] Custom audit failed, returning PSI only:', reason)
+      const reason = settled[1].status === 'rejected' ? settled[1].reason?.message : 'timed out or returned null'
+      console.warn('[audit API] Custom audit unavailable, returning PSI only:', reason)
     }
 
-    // Calculate combined health score (handle partial results)
+    // Calculate combined health score (handle partial results gracefully)
     const psiPerf = lighthouseResult?.scores?.performance ?? 0
     const customScore = customAuditResult?.overallScore ?? 0
     const healthScore = lighthouseResult && customAuditResult
@@ -305,7 +321,7 @@ export async function GET(req: NextRequest) {
       partial: !lighthouseResult || !customAuditResult,
     }
 
-    // Only cache complete results
+    // Only cache complete results (both engines succeeded)
     if (lighthouseResult && customAuditResult) {
       setCache(key, response)
     }

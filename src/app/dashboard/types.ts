@@ -4,6 +4,13 @@ export type CwvMetric = { value: string; score: number; numericValue?: number }
 export type FieldDataMetric = { p75: number; category: string } | null
 export type Severity = 'critical' | 'moderate' | 'minor' | 'info'
 
+export type Recommendation = {
+  fix: string
+  codeSnippet?: string
+  docsUrl?: string
+  estimatedImpact: 'high' | 'medium' | 'low'
+}
+
 export type AuditFinding = {
   id: string
   title: string
@@ -11,6 +18,8 @@ export type AuditFinding = {
   severity: Severity
   value?: string
   element?: string
+  recommendation?: Recommendation
+  estimatedUplift?: number
 }
 
 export type CategoryResult = {
@@ -32,6 +41,12 @@ export type CustomAudit = {
   critical: number
   moderate: number
   minor: number
+}
+
+export type OpportunityFix = {
+  fix: string
+  codeSnippet?: string
+  docsUrl?: string
 }
 
 export type AuditResult = {
@@ -65,3 +80,4 @@ export type AuditResult = {
   fromCache?: boolean
   partial?: boolean
 }
+

@@ -9,7 +9,7 @@ export default function DiagnosticsTab({ result }: { result: AuditResult }) {
         <Eye size={18} color="#60a5fa" />
         <h2 style={{ fontWeight: 700, fontSize: '1.05rem' }}>Diagnostics</h2>
       </div>
-      {result.diagnostics.length === 0 ? (
+      {(!result.diagnostics || result.diagnostics.length === 0) ? (
         <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>No diagnostic data available for this URL.</p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>

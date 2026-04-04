@@ -1,7 +1,9 @@
 // ── Smart Scoring System ──
 // Combines per-category scores and merges with Lighthouse
+// Enriches findings with actionable recommendations
 
 import { CategoryResult, CustomAuditResult } from './types'
+import { enrichWithRecommendations } from './recommendations'
 
 // Severity weights for score calculation
 const SEVERITY_WEIGHT = { critical: 3, moderate: 2, minor: 1, info: 0 }
@@ -66,14 +68,18 @@ export function countBySeverity(categories: CategoryResult[]) {
 
 /**
  * Build the full CustomAuditResult from category results.
+ * Enriches all findings with actionable recommendations and uplift estimates.
  */
 export function buildCustomAuditResult(
   url: string,
   categories: CategoryResult[],
   duration: number
 ): CustomAuditResult {
-  const overallScore = calculateOverallScore(categories)
-  const { critical, moderate, minor } = countBySeverity(categories)
+  // Enrich findings with recommendations + estimated uplift
+  const enrichedCategories = enrichWithRecommendations(categories)
+
+  const overallScore = calculateOverallScore(enrichedCategories)
+  const { critical, moderate, minor } = countBySeverity(enrichedCategories)
   const totalFindings = critical + moderate + minor
 
   return {
@@ -81,10 +87,11 @@ export function buildCustomAuditResult(
     fetchedAt: new Date().toISOString(),
     duration,
     overallScore,
-    categories,
+    categories: enrichedCategories,
     totalFindings,
     critical,
     moderate,
     minor,
   }
 }
+

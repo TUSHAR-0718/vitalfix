@@ -16,7 +16,7 @@ import { checkSecurity } from './security'
 import { checkMobile } from './mobile'
 import { checkAccessibility } from './accessibility'
 
-const MODULE_TIMEOUT = 8_000 // 8 seconds per module
+const MODULE_TIMEOUT = 15_000 // 15 seconds per module (broken-links needs HTTP HEAD requests)
 
 export type CheerioAPI = ReturnType<typeof cheerio.load>
 type AuditModule = (fetched: FetchResult, $: CheerioAPI) => Promise<CategoryResult>
@@ -55,7 +55,7 @@ export async function runCustomAudit(url: string): Promise<CustomAuditResult> {
   const start = Date.now()
 
   // Step 1: Fetch the page (shared across all modules)
-  const fetched = await fetchPage(url, 15_000)
+  const fetched = await fetchPage(url, 25_000)
 
   // Step 2: Parse HTML once — shared across all 8 modules (saves ~300ms)
   const $ = cheerio.load(fetched.html)

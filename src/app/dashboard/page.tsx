@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Search, AlertTriangle, ArrowRight, Terminal, Globe, Wifi, Smartphone, Monitor, MapPin, GitCompare, Zap, BarChart3, Eye, ShieldCheck, Star, ExternalLink, RefreshCw, CheckCircle, XCircle } from 'lucide-react'
 import ScoreRing from '@/components/ScoreRing'
 import Link from 'next/link'
@@ -15,6 +15,18 @@ const connections = ['4G (Fast)', '4G (Slow)', '3G', 'Cable']
 const locations = ['US East (Virginia)', 'EU West (London)', 'Asia (Singapore)', 'AU (Sydney)']
 
 const STORAGE_KEY = 'vitalfix-last-audit'
+const CLIENT_TIMEOUT = 130_000 // 130s — slightly above server's 120s global timeout
+const MAX_RETRIES = 1 // auto-retry once on timeout
+
+// Progress messages that cycle during long audits
+const PROGRESS_MESSAGES = [
+  'Connecting to PageSpeed Insights API…',
+  'Fetching page and running Lighthouse…',
+  'Analyzing Core Web Vitals…',
+  'Running custom site audit engine…',
+  'Checking broken links, images, security…',
+  'Almost done — compiling results…',
+]
 
 export default function DashboardPage() {
   const [url, setUrl] = useState('')
@@ -27,6 +39,12 @@ export default function DashboardPage() {
   const [connection, setConnection] = useState('4G (Fast)')
   const [runCount, setRunCount] = useState(0)
   const [activeTab, setActiveTab] = useState<'overview' | 'opportunities' | 'diagnostics' | 'field' | 'siteaudit'>('overview')
+
+  // Progress tracking state
+  const [elapsed, setElapsed] = useState(0)
+  const [progressMsg, setProgressMsg] = useState('')
+  const elapsedTimer = useRef<ReturnType<typeof setInterval> | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
   // Restore last audit result from localStorage on mount
   useEffect(() => {
@@ -43,37 +61,126 @@ export default function DashboardPage() {
     } catch { /* localStorage unavailable or corrupted — ignore */ }
   }, [])
 
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (elapsedTimer.current) clearInterval(elapsedTimer.current)
+      if (abortRef.current) abortRef.current.abort()
+    }
+  }, [])
+
+  // Progress message cycling
+  useEffect(() => {
+    if (!loading) return
+    const msgIndex = Math.min(Math.floor(elapsed / 10), PROGRESS_MESSAGES.length - 1)
+    setProgressMsg(PROGRESS_MESSAGES[msgIndex])
+  }, [elapsed, loading])
+
+  const startProgressTimer = useCallback(() => {
+    setElapsed(0)
+    if (elapsedTimer.current) clearInterval(elapsedTimer.current)
+    elapsedTimer.current = setInterval(() => {
+      setElapsed(prev => prev + 1)
+    }, 1000)
+  }, [])
+
+  const stopProgressTimer = useCallback(() => {
+    if (elapsedTimer.current) {
+      clearInterval(elapsedTimer.current)
+      elapsedTimer.current = null
+    }
+  }, [])
+
+  const fetchAudit = async (targetUrl: string, signal: AbortSignal): Promise<AuditResult> => {
+    const res = await fetch(
+      `/api/audit/full?url=${encodeURIComponent(targetUrl)}&strategy=${device}`,
+      { signal }
+    )
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Audit failed')
+    return data
+  }
+
   const runAudit = async () => {
     if (!url.trim()) return
     let targetUrl = url.trim()
     if (!/^https?:\/\//.test(targetUrl)) targetUrl = 'https://' + targetUrl
+
+    // Abort any in-flight request
+    if (abortRef.current) abortRef.current.abort()
 
     setLoading(true)
     setError(null)
     setPrevResult(result)
     setResult(null)
     setActiveTab('overview')
+    startProgressTimer()
 
-    try {
-      const res = await fetch(`/api/audit/full?url=${encodeURIComponent(targetUrl)}&strategy=${device}`)
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || 'Audit failed')
-      setResult(data)
-      setRunCount(c => c + 1)
+    let attempt = 0
+    let lastError: string = ''
 
-      // Persist last result to localStorage (survives page refresh)
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ result: data, url: targetUrl })) } catch { /* quota exceeded — ignore */ }
-    } catch (e: any) {
-      setError(e.message || 'Something went wrong. Check the URL and try again.')
-    } finally {
-      setLoading(false)
+    while (attempt <= MAX_RETRIES) {
+      try {
+        // Create new AbortController with client-side timeout
+        const controller = new AbortController()
+        abortRef.current = controller
+        const timeoutId = setTimeout(() => controller.abort(), CLIENT_TIMEOUT)
+
+        try {
+          const data = await fetchAudit(targetUrl, controller.signal)
+          clearTimeout(timeoutId)
+          setResult(data)
+          setRunCount(c => c + 1)
+
+          // Persist last result to localStorage (survives page refresh)
+          try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ result: data, url: targetUrl })) } catch { /* quota exceeded — ignore */ }
+          stopProgressTimer()
+          setLoading(false)
+          return // Success — exit
+        } catch (e: any) {
+          clearTimeout(timeoutId)
+
+          // Check if this is an abort/timeout error
+          const isTimeout = e.name === 'AbortError' || (e.message && (e.message.includes('timed out') || e.message.includes('timeout')))
+          lastError = isTimeout
+            ? 'The audit timed out. The site may be slow or the PageSpeed Insights API is congested.'
+            : (e.message || 'Something went wrong. Check the URL and try again.')
+
+          // If it's a timeout and we have retries left, try again
+          if (isTimeout && attempt < MAX_RETRIES) {
+            attempt++
+            setProgressMsg(`Retry ${attempt}/${MAX_RETRIES} — trying again…`)
+            continue
+          }
+
+          // Non-timeout errors or exhausted retries: break out
+          break
+        }
+      } catch (e: any) {
+        lastError = e.message || 'Something went wrong.'
+        break
+      }
     }
+
+    // Audit failed — restore previous result if available so page isn't blank
+    setError(lastError)
+    if (prevResult) {
+      setResult(prevResult)
+    }
+    stopProgressTimer()
+    setLoading(false)
   }
 
   const delta = (curr: number, prev: number) => {
     const d = curr - prev
     const color = d > 0 ? '#34d399' : d < 0 ? '#f87171' : 'var(--text-muted)'
     return { label: d > 0 ? `▲ +${d}` : d < 0 ? `▼ ${d}` : '—', color }
+  }
+
+  // Format elapsed time as Xm Ys or just Xs
+  const formatElapsed = (s: number) => {
+    if (s < 60) return `${s}s`
+    return `${Math.floor(s / 60)}m ${s % 60}s`
   }
 
   return (
@@ -108,14 +215,15 @@ export default function DashboardPage() {
                 value={url}
                 onChange={e => setUrl(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && runAudit()}
-                style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '0.82rem', fontFamily: "'JetBrains Mono', monospace" }}
+                disabled={loading}
+                style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '0.82rem', fontFamily: "'JetBrains Mono', monospace", opacity: loading ? 0.5 : 1 }}
               />
             </div>
 
             {/* Device toggle */}
             <div style={{ display: 'flex', gap: '0.25rem', padding: '0.2rem', borderRadius: 8, background: 'var(--bg)', border: '1px solid var(--border)' }}>
               {(['mobile', 'desktop'] as const).map(d => (
-                <button key={d} onClick={() => setDevice(d)} style={{ padding: '0.4rem 0.7rem', borderRadius: 6, cursor: 'pointer', border: 'none', fontSize: '0.78rem', fontWeight: 500, background: device === d ? 'var(--bg-card)' : 'transparent', color: device === d ? 'var(--text-primary)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.3rem', transition: 'all 150ms' }}>
+                <button key={d} onClick={() => setDevice(d)} disabled={loading} style={{ padding: '0.4rem 0.7rem', borderRadius: 6, cursor: 'pointer', border: 'none', fontSize: '0.78rem', fontWeight: 500, background: device === d ? 'var(--bg-card)' : 'transparent', color: device === d ? 'var(--text-primary)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.3rem', transition: 'all 150ms' }}>
                   {d === 'mobile' ? <Smartphone size={13} /> : <Monitor size={13} />}
                   {d.charAt(0).toUpperCase() + d.slice(1)}
                 </button>
@@ -132,13 +240,13 @@ export default function DashboardPage() {
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
               <MapPin size={12} color="var(--text-muted)" />
-              <select value={location} onChange={e => setLocation(e.target.value)} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '0.3rem 0.5rem', color: 'var(--text-muted)', fontSize: '0.75rem', cursor: 'pointer', outline: 'none', fontFamily: 'inherit' }}>
+              <select value={location} onChange={e => setLocation(e.target.value)} disabled={loading} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '0.3rem 0.5rem', color: 'var(--text-muted)', fontSize: '0.75rem', cursor: 'pointer', outline: 'none', fontFamily: 'inherit' }}>
                 {locations.map(l => <option key={l}>{l}</option>)}
               </select>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
               <Wifi size={12} color="var(--text-muted)" />
-              <select value={connection} onChange={e => setConnection(e.target.value)} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '0.3rem 0.5rem', color: 'var(--text-muted)', fontSize: '0.75rem', cursor: 'pointer', outline: 'none', fontFamily: 'inherit' }}>
+              <select value={connection} onChange={e => setConnection(e.target.value)} disabled={loading} style={{ background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '0.3rem 0.5rem', color: 'var(--text-muted)', fontSize: '0.75rem', cursor: 'pointer', outline: 'none', fontFamily: 'inherit' }}>
                 {connections.map(c => <option key={c}>{c}</option>)}
               </select>
             </div>
@@ -146,13 +254,52 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* ── Loading state ── */}
+        {/* ── Loading state with live progress ── */}
         {loading && (
           <div style={{ padding: '3rem 1.5rem' }}>
             {/* Progress bar */}
-            <div style={{ height: 2, borderRadius: 1, background: 'var(--border)', marginBottom: '2rem', overflow: 'hidden' }}>
-              <div style={{ height: '100%', borderRadius: 1, background: 'linear-gradient(90deg, var(--accent), #60a5fa)', animation: 'progress-bar 20s ease-out forwards' }} />
+            <div style={{ height: 2, borderRadius: 1, background: 'var(--border)', marginBottom: '1rem', overflow: 'hidden' }}>
+              <div style={{ height: '100%', borderRadius: 1, background: 'linear-gradient(90deg, var(--accent), #60a5fa)', animation: 'progress-bar 120s ease-out forwards' }} />
             </div>
+
+            {/* Elapsed timer + progress message */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.75rem' }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <RefreshCw size={12} style={{ animation: 'spin 1.5s linear infinite' }} />
+                {progressMsg}
+              </span>
+              <span style={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: '0.82rem',
+                fontWeight: 700,
+                color: elapsed > 60 ? '#fbbf24' : elapsed > 30 ? '#60a5fa' : 'var(--text-muted)',
+                padding: '0.2rem 0.6rem',
+                borderRadius: 6,
+                background: 'var(--bg)',
+                border: '1px solid var(--border)',
+              }}>
+                {formatElapsed(elapsed)}
+              </span>
+            </div>
+
+            {/* Info banner for long audits */}
+            {elapsed > 20 && (
+              <div style={{
+                padding: '0.85rem 1.1rem', borderRadius: 10, marginBottom: '1.5rem',
+                background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.2)',
+                display: 'flex', alignItems: 'center', gap: '0.6rem',
+                animation: 'fadeIn 300ms ease-out',
+              }}>
+                <AlertTriangle size={14} color="#60a5fa" style={{ flexShrink: 0 }} />
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                  {elapsed > 60
+                    ? 'Still working — Google\'s PageSpeed API is slow for complex pages. We\'ll return partial results if PSI times out.'
+                    : 'Google\'s PageSpeed Insights API can take 30-90 seconds for complex pages. Please wait…'
+                  }
+                </span>
+              </div>
+            )}
+
             {/* Skeleton cards */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginBottom: '1.5rem' }}>
               {[1,2,3,4].map(i => (
@@ -169,14 +316,26 @@ export default function DashboardPage() {
 
         {/* ── Error state ── */}
         {error && !loading && (
-          <div style={{ padding: '1.5rem', borderRadius: 12, background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.25)', marginBottom: '2rem', display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
-            <XCircle size={18} color="#f87171" style={{ flexShrink: 0, marginTop: 2 }} />
-            <div>
-              <p style={{ fontWeight: 700, color: '#f87171', marginBottom: '0.25rem' }}>Audit Failed</p>
-              <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>{error}</p>
-              <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
-                Make sure the URL is publicly accessible and starts with http:// or https://
-              </p>
+          <div style={{ padding: '1.5rem', borderRadius: 12, background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.25)', marginBottom: '2rem' }}>
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+              <XCircle size={18} color="#f87171" style={{ flexShrink: 0, marginTop: 2 }} />
+              <div style={{ flex: 1 }}>
+                <p style={{ fontWeight: 700, color: '#f87171', marginBottom: '0.25rem' }}>Audit Failed</p>
+                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>{error}</p>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
+                  Make sure the URL is publicly accessible and starts with http:// or https://
+                </p>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+              <button onClick={runAudit} className="btn-primary" style={{ fontSize: '0.8rem', padding: '0.45rem 1rem' }}>
+                <RefreshCw size={13} /> Retry
+              </button>
+              {result && (
+                <button onClick={() => setError(null)} className="btn-secondary" style={{ fontSize: '0.8rem', padding: '0.45rem 1rem' }}>
+                  View Previous Result
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -184,6 +343,21 @@ export default function DashboardPage() {
         {/* ── Results ── */}
         {result && !loading && (
           <div className="animate-fade-up">
+            {/* Partial results banner */}
+            {result.partial && (
+              <div style={{
+                padding: '0.85rem 1.1rem', borderRadius: 10, marginBottom: '1.25rem',
+                background: 'rgba(251,191,36,0.06)', border: '1px solid rgba(251,191,36,0.25)',
+                display: 'flex', alignItems: 'center', gap: '0.6rem',
+              }}>
+                <AlertTriangle size={14} color="#fbbf24" style={{ flexShrink: 0 }} />
+                <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                  <strong style={{ color: '#fbbf24' }}>Partial results:</strong>{' '}
+                  {!result.scores ? 'PageSpeed Insights data unavailable — showing custom audit only.' : 'Custom audit data unavailable — showing Lighthouse only.'}
+                </span>
+              </div>
+            )}
+
             {/* Meta bar */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
               <CheckCircle size={16} color="#34d399" />
@@ -326,7 +500,7 @@ export default function DashboardPage() {
               {([
                 { id: 'overview', label: 'Core Web Vitals', icon: <BarChart3 size={13} /> },
                 { id: 'siteaudit', label: `Site Audit (${result.customAudit?.totalFindings ?? 0})`, icon: <ShieldCheck size={13} /> },
-                { id: 'opportunities', label: `Opportunities (${result.opportunities.length})`, icon: <Zap size={13} /> },
+                { id: 'opportunities', label: `Opportunities (${result.opportunities?.length ?? 0})`, icon: <Zap size={13} /> },
                 { id: 'diagnostics', label: 'Diagnostics', icon: <Eye size={13} /> },
                 { id: 'field', label: 'Field Data', icon: <Star size={13} /> },
               ] as const).map(t => (

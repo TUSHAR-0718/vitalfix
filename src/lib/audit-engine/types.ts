@@ -2,14 +2,23 @@
 
 export type Severity = 'critical' | 'moderate' | 'minor' | 'info'
 
+export interface Recommendation {
+  fix: string             // human-readable fix instruction
+  codeSnippet?: string    // concrete code/config example
+  docsUrl?: string        // link to relevant documentation
+  estimatedImpact: 'high' | 'medium' | 'low'
+}
+
 export interface AuditFinding {
   id: string
   title: string
   description: string
   severity: Severity
   category: AuditCategory
-  value?: string        // e.g. "403", "250 KB", "missing"
-  element?: string      // e.g. "<img src=...>"
+  value?: string           // e.g. "403", "250 KB", "missing"
+  element?: string         // e.g. "<img src=...>"
+  recommendation?: Recommendation
+  estimatedUplift?: number // estimated score points gained if fixed (0–100)
 }
 
 export type AuditCategory =

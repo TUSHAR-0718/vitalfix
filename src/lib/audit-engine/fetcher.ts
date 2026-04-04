@@ -2,7 +2,7 @@
 
 import { FetchResult } from './types'
 
-const DEFAULT_TIMEOUT = 10_000 // 10s
+const DEFAULT_TIMEOUT = 20_000 // 20s — some pages are slow behind CDNs/SSR
 const MAX_BODY_BYTES = 5 * 1024 * 1024 // 5 MB
 const USER_AGENT = 'VitalFix-AuditBot/1.0 (+https://vitalfix.dev)'
 
