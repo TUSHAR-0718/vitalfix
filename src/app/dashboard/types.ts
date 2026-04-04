@@ -79,5 +79,7 @@ export type AuditResult = {
   healthScore?: number
   fromCache?: boolean
   partial?: boolean
+  partialReason?: string
+  liteMode?: boolean
 }
 

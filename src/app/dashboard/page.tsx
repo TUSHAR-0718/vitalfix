@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Search, AlertTriangle, ArrowRight, Terminal, Globe, Wifi, Smartphone, Monitor, MapPin, GitCompare, Zap, BarChart3, Eye, ShieldCheck, Star, ExternalLink, RefreshCw, CheckCircle, XCircle } from 'lucide-react'
+import { Search, AlertTriangle, ArrowRight, Terminal, Globe, Wifi, Smartphone, Monitor, MapPin, GitCompare, Zap, BarChart3, Eye, ShieldCheck, Star, ExternalLink, RefreshCw, CheckCircle, XCircle, Clock, FileText } from 'lucide-react'
 import ScoreRing from '@/components/ScoreRing'
 import Link from 'next/link'
 import type { AuditResult } from './types'
@@ -10,13 +10,15 @@ import OpportunitiesTab from './OpportunitiesTab'
 import DiagnosticsTab from './DiagnosticsTab'
 import FieldDataTab from './FieldDataTab'
 import SiteAuditTab from './SiteAuditTab'
+import HistoryTab from './HistoryTab'
+import { saveScan, getHistory, type StoredScan } from '@/lib/scan-history'
 
 const connections = ['4G (Fast)', '4G (Slow)', '3G', 'Cable']
 const locations = ['US East (Virginia)', 'EU West (London)', 'Asia (Singapore)', 'AU (Sydney)']
 
-const STORAGE_KEY = 'vitalfix-last-audit'
-const CLIENT_TIMEOUT = 130_000 // 130s — slightly above server's 120s global timeout
-const MAX_RETRIES = 1 // auto-retry once on timeout
+const LEGACY_STORAGE_KEY = 'vitalfix-last-audit'
+const CLIENT_TIMEOUT = 160_000 // 160s — above server's 150s global timeout (90s PSI + 45s lite fallback + buffer)
+const MAX_RETRIES = 2 // auto-retry up to 2x on timeout or network error
 
 // Progress messages that cycle during long audits
 const PROGRESS_MESSAGES = [
@@ -38,7 +40,7 @@ export default function DashboardPage() {
   const [location, setLocation] = useState('US East (Virginia)')
   const [connection, setConnection] = useState('4G (Fast)')
   const [runCount, setRunCount] = useState(0)
-  const [activeTab, setActiveTab] = useState<'overview' | 'opportunities' | 'diagnostics' | 'field' | 'siteaudit'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'opportunities' | 'diagnostics' | 'field' | 'siteaudit' | 'history'>('overview')
 
   // Progress tracking state
   const [elapsed, setElapsed] = useState(0)
@@ -49,13 +51,18 @@ export default function DashboardPage() {
   // Restore last audit result from localStorage on mount
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY)
-      if (saved) {
-        const parsed = JSON.parse(saved)
-        if (parsed.result) {
-          setResult(parsed.result)
-          setUrl(parsed.url || parsed.result.url || '')
-          setRunCount(1)
+      // Try new history system first
+      const history = getHistory()
+      if (history.length > 0) {
+        // We only have summary data in history, try legacy key for full result
+        const saved = localStorage.getItem(LEGACY_STORAGE_KEY)
+        if (saved) {
+          const parsed = JSON.parse(saved)
+          if (parsed.result) {
+            setResult(parsed.result)
+            setUrl(parsed.url || parsed.result.url || '')
+            setRunCount(1)
+          }
         }
       }
     } catch { /* localStorage unavailable or corrupted — ignore */ }
@@ -92,12 +99,39 @@ export default function DashboardPage() {
   }, [])
 
   const fetchAudit = async (targetUrl: string, signal: AbortSignal): Promise<AuditResult> => {
-    const res = await fetch(
-      `/api/audit/full?url=${encodeURIComponent(targetUrl)}&strategy=${device}`,
-      { signal }
-    )
-    const data = await res.json()
-    if (!res.ok) throw new Error(data.error || 'Audit failed')
+    let res: Response
+    try {
+      res = await fetch(
+        `/api/audit/full?url=${encodeURIComponent(targetUrl)}&strategy=${device}`,
+        { signal }
+      )
+    } catch (fetchErr: any) {
+      // Browser throws TypeError: "Failed to fetch" when the network request
+      // itself fails (server unreachable, connection reset, CORS, SSL error, etc.)
+      if (fetchErr.name === 'AbortError') throw fetchErr
+      throw new Error(
+        'NETWORK_ERROR: Could not reach the audit server. ' +
+        'This usually means the server timed out or the connection was reset. ' +
+        'Please try again.'
+      )
+    }
+
+    let data: any
+    try {
+      data = await res.json()
+    } catch {
+      // Server returned non-JSON (e.g. HTML error page, empty body from crash)
+      throw new Error(
+        `Server returned an invalid response (HTTP ${res.status}). ` +
+        'The audit server may have timed out or crashed. Please try again.'
+      )
+    }
+
+    if (!res.ok) {
+      const msg = data.error || `Audit failed (HTTP ${res.status})`
+      const hint = data.hint ? ` ${data.hint}` : ''
+      throw new Error(msg + hint)
+    }
     return data
   }
 
@@ -132,24 +166,34 @@ export default function DashboardPage() {
           setResult(data)
           setRunCount(c => c + 1)
 
-          // Persist last result to localStorage (survives page refresh)
-          try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ result: data, url: targetUrl })) } catch { /* quota exceeded — ignore */ }
+          // Save to scan history + persist last full result for reload
+          try {
+            saveScan(data)
+            localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify({ result: data, url: targetUrl }))
+          } catch { /* quota exceeded — ignore */ }
           stopProgressTimer()
           setLoading(false)
           return // Success — exit
         } catch (e: any) {
           clearTimeout(timeoutId)
 
-          // Check if this is an abort/timeout error
+          // Check if this is an abort/timeout/network error (all are retryable)
           const isTimeout = e.name === 'AbortError' || (e.message && (e.message.includes('timed out') || e.message.includes('timeout')))
-          lastError = isTimeout
-            ? 'The audit timed out. The site may be slow or the PageSpeed Insights API is congested.'
-            : (e.message || 'Something went wrong. Check the URL and try again.')
+          const isNetworkError = e.message?.includes('NETWORK_ERROR') || e.message?.includes('Failed to fetch') || e.message?.includes('invalid response')
+          const isRetryable = isTimeout || isNetworkError
 
-          // If it's a timeout and we have retries left, try again
-          if (isTimeout && attempt < MAX_RETRIES) {
+          if (isTimeout) {
+            lastError = 'The audit timed out. The site may be slow or the PageSpeed Insights API is congested. Try again.'
+          } else if (isNetworkError) {
+            lastError = 'Could not connect to the audit server. The server may have timed out processing a complex page, or there\'s a network issue. Please try again.'
+          } else {
+            lastError = e.message || 'Something went wrong. Check the URL and try again.'
+          }
+
+          // If it's a retryable error and we have retries left, try again
+          if (isRetryable && attempt < MAX_RETRIES) {
             attempt++
-            setProgressMsg(`Retry ${attempt}/${MAX_RETRIES} — trying again…`)
+            setProgressMsg(`Retry ${attempt}/${MAX_RETRIES} — ${isNetworkError ? 'reconnecting' : 'trying again'}…`)
             continue
           }
 
@@ -323,7 +367,11 @@ export default function DashboardPage() {
                 <p style={{ fontWeight: 700, color: '#f87171', marginBottom: '0.25rem' }}>Audit Failed</p>
                 <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>{error}</p>
                 <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
-                  Make sure the URL is publicly accessible and starts with http:// or https://
+                  {error.includes('connect') || error.includes('NETWORK_ERROR') || error.includes('Failed to fetch')
+                    ? 'The audit server could not be reached. This may be a temporary issue — please retry in a few seconds.'
+                    : error.includes('timed out') || error.includes('timeout')
+                    ? 'The page took too long to audit. Try a simpler page, or switch between mobile/desktop mode.'
+                    : 'Make sure the URL is publicly accessible and starts with http:// or https://'}
                 </p>
               </div>
             </div>
@@ -353,7 +401,16 @@ export default function DashboardPage() {
                 <AlertTriangle size={14} color="#fbbf24" style={{ flexShrink: 0 }} />
                 <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
                   <strong style={{ color: '#fbbf24' }}>Partial results:</strong>{' '}
-                  {!result.scores ? 'PageSpeed Insights data unavailable — showing custom audit only.' : 'Custom audit data unavailable — showing Lighthouse only.'}
+                  {!result.scores
+                    ? 'PageSpeed Insights data unavailable — showing custom audit only.'
+                    : result.liteMode
+                    ? 'PSI fell back to performance-only mode (full request timed out). Accessibility, Best Practices, and SEO scores are unavailable.'
+                    : 'Custom audit data unavailable — showing Lighthouse only.'}
+                  {result.partialReason && (
+                    <span style={{ display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                      Reason: {result.partialReason}
+                    </span>
+                  )}
                 </span>
               </div>
             )}
@@ -368,9 +425,19 @@ export default function DashboardPage() {
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
                 {result.strategy}{result.lighthouseVersion ? ` · Lighthouse ${result.lighthouseVersion}` : ''} · {new Date(result.fetchedAt).toLocaleTimeString()}
               </span>
-              <a href={`https://pagespeed.web.dev/analysis?url=${encodeURIComponent(result.url)}`} target="_blank" rel="noreferrer" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.78rem', color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}>
-                View on PSI <ExternalLink size={12} />
-              </a>
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <button
+                  onClick={() => window.print()}
+                  className="btn-ghost"
+                  id="export-pdf-btn"
+                  style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--accent)', padding: '0.25rem 0.5rem' }}
+                >
+                  <FileText size={12} /> Export PDF
+                </button>
+                <a href={`https://pagespeed.web.dev/analysis?url=${encodeURIComponent(result.url)}`} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.78rem', color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}>
+                  View on PSI <ExternalLink size={12} />
+                </a>
+              </div>
             </div>
 
             {/* ── Health Score hero (combined) ── */}
@@ -496,13 +563,14 @@ export default function DashboardPage() {
             )}
 
             {/* ── Tab navigation — underline style ── */}
-            <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', marginBottom: '1.5rem', overflowX: 'auto' }}>
+            <div id="tab-navigation" style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', marginBottom: '1.5rem', overflowX: 'auto' }}>
               {([
                 { id: 'overview', label: 'Core Web Vitals', icon: <BarChart3 size={13} /> },
                 { id: 'siteaudit', label: `Site Audit (${result.customAudit?.totalFindings ?? 0})`, icon: <ShieldCheck size={13} /> },
                 { id: 'opportunities', label: `Opportunities (${result.opportunities?.length ?? 0})`, icon: <Zap size={13} /> },
                 { id: 'diagnostics', label: 'Diagnostics', icon: <Eye size={13} /> },
                 { id: 'field', label: 'Field Data', icon: <Star size={13} /> },
+                { id: 'history', label: 'History', icon: <Clock size={13} /> },
               ] as const).map(t => (
                 <button key={t.id} onClick={() => setActiveTab(t.id as any)} className={`tab-underline${activeTab === t.id ? ' active' : ''}`}>
                   {t.icon} {t.label}
@@ -516,6 +584,7 @@ export default function DashboardPage() {
             {activeTab === 'diagnostics' && <DiagnosticsTab result={result} />}
             {activeTab === 'field' && <FieldDataTab result={result} />}
             {activeTab === 'siteaudit' && <SiteAuditTab result={result} />}
+            {activeTab === 'history' && <HistoryTab currentUrl={result.url} />}
 
             {/* ── CTA ── */}
             <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginTop: '2rem' }}>

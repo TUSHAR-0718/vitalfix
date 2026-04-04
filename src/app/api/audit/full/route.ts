@@ -75,7 +75,7 @@ const PSI_ENDPOINT = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed
 const CATEGORIES = ['performance', 'accessibility', 'best-practices', 'seo']
 const PSI_TIMEOUT = 90_000     // 90s for PSI — Google's API is slow for complex pages
 const CUSTOM_AUDIT_TIMEOUT = 60_000 // 60s for the custom audit engine
-const GLOBAL_TIMEOUT = 120_000 // 120s absolute cap for the entire handler
+const GLOBAL_TIMEOUT = 150_000 // 150s absolute cap — accommodates PSI full (90s) + lite fallback (45s)
 
 async function fetchLighthouse(url: string, strategy: string) {
   const apiKey = process.env.GOOGLE_PSI_API_KEY
@@ -186,6 +186,117 @@ async function fetchLighthouse(url: string, strategy: string) {
   }
 }
 
+// ── Lite PSI fetch — perf-only, shorter timeout ──
+// Fallback when the full 4-category request times out. Single-category is ~2-3x faster.
+const PSI_LITE_TIMEOUT = 45_000 // 45s — should be enough for perf-only
+
+async function fetchLighthouseLite(url: string, strategy: string) {
+  const apiKey = process.env.GOOGLE_PSI_API_KEY
+  const keyParam = apiKey ? `&key=${apiKey}` : ''
+  const psiUrl = `${PSI_ENDPOINT}?url=${encodeURIComponent(url)}&strategy=${strategy}&category=performance${keyParam}`
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), PSI_LITE_TIMEOUT)
+
+  try {
+    const res = await fetch(psiUrl, {
+      signal: controller.signal,
+      next: { revalidate: 0 },
+    })
+
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}))
+      throw new PSIError(errBody?.error?.message || `PSI lite returned ${res.status}`, res.status)
+    }
+
+    const data = await res.json()
+    const lhr = data.lighthouseResult
+    const fex = data.loadingExperience
+    const audit = (id: string) => lhr?.audits?.[id]
+    const auditVal = (id: string) => audit(id)?.displayValue ?? 'N/A'
+    const auditScore = (id: string): number => Math.round((audit(id)?.score ?? 0) * 100)
+
+    const scores = {
+      performance: Math.round((lhr?.categories?.performance?.score ?? 0) * 100),
+      accessibility: 0, // Not available in lite mode
+      bestPractices: 0,
+      seo: 0,
+    }
+
+    const cwv = {
+      lcp: { value: auditVal('largest-contentful-paint'), score: auditScore('largest-contentful-paint'), numericValue: audit('largest-contentful-paint')?.numericValue ?? 0 },
+      inp: {
+        value: auditVal('interaction-to-next-paint') !== 'N/A' ? auditVal('interaction-to-next-paint') : auditVal('total-blocking-time'),
+        score: audit('interaction-to-next-paint')?.score != null ? auditScore('interaction-to-next-paint') : auditScore('total-blocking-time'),
+        numericValue: audit('interaction-to-next-paint')?.numericValue ?? audit('total-blocking-time')?.numericValue ?? 0,
+      },
+      cls: { value: auditVal('cumulative-layout-shift'), score: auditScore('cumulative-layout-shift'), numericValue: audit('cumulative-layout-shift')?.numericValue ?? 0 },
+      fcp: { value: auditVal('first-contentful-paint'), score: auditScore('first-contentful-paint') },
+      ttfb: { value: auditVal('server-response-time'), score: auditScore('server-response-time'), numericValue: audit('server-response-time')?.numericValue ?? 0 },
+      si: { value: auditVal('speed-index'), score: auditScore('speed-index') },
+      tbt: { value: auditVal('total-blocking-time'), score: auditScore('total-blocking-time'), numericValue: audit('total-blocking-time')?.numericValue ?? 0 },
+    }
+
+    const fieldData = fex?.metrics ? {
+      lcp: fex.metrics.LARGEST_CONTENTFUL_PAINT_MS ? { p75: fex.metrics.LARGEST_CONTENTFUL_PAINT_MS.percentile, category: fex.metrics.LARGEST_CONTENTFUL_PAINT_MS.category } : null,
+      fid: fex.metrics.FIRST_INPUT_DELAY_MS ? { p75: fex.metrics.FIRST_INPUT_DELAY_MS.percentile, category: fex.metrics.FIRST_INPUT_DELAY_MS.category } : null,
+      cls: fex.metrics.CUMULATIVE_LAYOUT_SHIFT_SCORE ? { p75: fex.metrics.CUMULATIVE_LAYOUT_SHIFT_SCORE.percentile, category: fex.metrics.CUMULATIVE_LAYOUT_SHIFT_SCORE.category } : null,
+      inp: fex.metrics.INTERACTION_TO_NEXT_PAINT ? { p75: fex.metrics.INTERACTION_TO_NEXT_PAINT.percentile, category: fex.metrics.INTERACTION_TO_NEXT_PAINT.category } : null,
+      overallCategory: fex.overall_category,
+    } : null
+
+    // Lite mode has fewer opportunities since only performance audits run
+    const opportunities = lhr?.audits ?? {}
+    const opportunityIds = [
+      'render-blocking-resources', 'uses-optimized-images', 'uses-webp-images',
+      'uses-text-compression', 'uses-long-cache-ttl', 'unused-javascript',
+      'unused-css-rules', 'dom-size', 'bootup-time', 'mainthread-work-breakdown',
+    ]
+    const topOpportunities = opportunityIds
+      .filter(id => opportunities[id] && opportunities[id].score !== null && opportunities[id].score < 1)
+      .map(id => {
+        const a = opportunities[id]
+        return {
+          id, title: a.title, description: a.description,
+          score: Math.round((a.score ?? 0) * 100),
+          displayValue: a.displayValue ?? '',
+          impact: a.score < 0.5 ? 'high' : a.score < 0.9 ? 'medium' : 'low',
+        }
+      })
+      .sort((a, b) => a.score - b.score)
+      .slice(0, 8)
+
+    const diagnosticIds = [
+      'largest-contentful-paint-element', 'layout-shift-elements',
+      'long-tasks', 'third-party-summary', 'total-byte-weight',
+    ]
+    const diagnostics = diagnosticIds
+      .filter(id => lhr?.audits?.[id])
+      .map(id => ({ id, title: lhr.audits[id].title, displayValue: lhr.audits[id].displayValue ?? '', score: lhr.audits[id].score }))
+
+    console.log('[audit API] PSI lite succeeded (perf-only fallback)')
+
+    return {
+      url, strategy,
+      fetchedAt: new Date().toISOString(),
+      scores, cwv, fieldData,
+      opportunities: topOpportunities,
+      diagnostics,
+      lighthouseVersion: lhr?.lighthouseVersion,
+      userAgent: lhr?.environment?.hostUserAgent ?? '',
+      liteMode: true, // Flag so UI can show "partial PSI data" notice
+    }
+  } catch (err) {
+    if (err instanceof PSIError) throw err
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new PSIError('PSI lite also timed out after 45 seconds.', 504)
+    }
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 // ── Main handler ──
 export async function GET(req: NextRequest) {
   // Cleanup expired rate limit entries periodically
@@ -243,67 +354,98 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Run PSI and Custom Audit INDEPENDENTLY ──
-  // Each engine has its own timeout. One failing does NOT kill the other.
-  // A global safety-net timeout ensures the handler never hangs forever.
+  // Architecture: Each engine has its own timeout. One failing does NOT kill the other.
+  // The global safety-net collects whatever partial results are available — NEVER rejects.
   let globalTimer: ReturnType<typeof setTimeout> | undefined
 
+  // Shared results container — populated as engines complete
+  let lighthouseResult: any = null
+  let customAuditResult: any = null
+  let psiError: string | null = null
+  let customError: string | null = null
+
   try {
-    // Wrap custom audit with its own timeout so it runs independently of PSI
+    // ── Wrap custom audit with its own timeout (resolves null, never rejects) ──
     const customAuditWithTimeout = Promise.race([
-      runCustomAudit(parsedUrl.href),
+      runCustomAudit(parsedUrl.href).catch((err) => {
+        customError = err?.message || 'Custom audit failed'
+        console.warn('[audit API] Custom audit error:', customError)
+        return null
+      }),
       new Promise<null>((resolve) =>
         setTimeout(() => {
+          customError = 'Custom audit timed out'
           console.warn('[audit API] Custom audit timed out after 60s')
           resolve(null)
         }, CUSTOM_AUDIT_TIMEOUT)
       ),
     ])
 
-    // Run both engines in parallel — allSettled ensures neither kills the other
-    const auditPromise = Promise.allSettled([
-      fetchLighthouse(parsedUrl.href, strategy),
+    // ── PSI with fallback: full 4-category → lite perf-only on timeout ──
+    const psiWithFallback = async () => {
+      try {
+        return await fetchLighthouse(parsedUrl.href, strategy)
+      } catch (err: any) {
+        psiError = err?.message || 'PSI failed'
+
+        // If PSI timed out or returned 5xx, try a LITE request (perf-only, much faster)
+        if (err instanceof PSIError && (err.status === 504 || err.status >= 500)) {
+          console.warn('[audit API] PSI full request failed, trying lite (perf-only)…')
+          try {
+            return await fetchLighthouseLite(parsedUrl.href, strategy)
+          } catch (liteErr: any) {
+            psiError = `PSI full and lite both failed: ${liteErr?.message || 'unknown'}`
+            console.warn('[audit API] PSI lite also failed:', liteErr?.message)
+            return null
+          }
+        }
+
+        // For non-timeout PSI errors, don't retry
+        return null
+      }
+    }
+
+    // ── Run both engines in parallel ──
+    const auditPromise = Promise.all([
+      psiWithFallback(),
       customAuditWithTimeout,
     ])
 
-    // Global safety-net timeout (120s absolute cap)
-    const settled = await Promise.race([
+    // ── Global safety-net: RESOLVES with partial results, NEVER rejects ──
+    const [psiResult, customResult] = await Promise.race([
       auditPromise,
-      new Promise<never>((_, reject) => {
-        globalTimer = setTimeout(
-          () => reject(new Error('Audit timed out after 120 seconds. The site may be too slow or complex — try again.')),
-          GLOBAL_TIMEOUT,
-        )
+      new Promise<[null, null]>((resolve) => {
+        globalTimer = setTimeout(() => {
+          console.warn(`[audit API] Global timeout (${GLOBAL_TIMEOUT / 1000}s) — returning partial results`)
+          resolve([null, null])
+        }, GLOBAL_TIMEOUT)
       }),
     ])
 
-    // Clear the global timeout since the audit completed
     clearTimeout(globalTimer)
 
-    const lighthouseResult = settled[0].status === 'fulfilled' ? settled[0].value : null
-    const customAuditResult = settled[1].status === 'fulfilled' ? settled[1].value : null
+    lighthouseResult = psiResult
+    customAuditResult = customResult
 
-    // If both failed, return an error with details
+    // ── If BOTH engines returned nothing, return error (but with helpful details) ──
     if (!lighthouseResult && !customAuditResult) {
-      const psiErr = settled[0].status === 'rejected' ? settled[0].reason : null
-      const customErr = settled[1].status === 'rejected' ? settled[1].reason : null
-      const message = psiErr?.message || customErr?.message || 'Audit failed. Check the URL and try again.'
-      console.error('[audit API] Both audits failed:', { psi: psiErr?.message, custom: customErr?.message })
-
-      if (psiErr instanceof PSIError) {
-        const clientStatus = psiErr.status === 429 ? 429 : psiErr.status >= 400 && psiErr.status < 500 ? 400 : 502
-        return NextResponse.json({ error: message }, { status: clientStatus })
-      }
-      return NextResponse.json({ error: message }, { status: 502 })
+      const message = psiError || customError || 'Both audit engines failed. The site may be unreachable or too complex.'
+      console.error('[audit API] Both audits produced no data:', { psi: psiError, custom: customError })
+      return NextResponse.json(
+        {
+          error: message,
+          hint: 'Try switching between mobile/desktop, or try again in a moment. Google\'s API may be congested.',
+        },
+        { status: 502 }
+      )
     }
 
-    // Log partial failures (non-blocking) — one engine succeeded
+    // Log partial failures (non-blocking)
     if (!lighthouseResult) {
-      const reason = settled[0].status === 'rejected' ? settled[0].reason?.message : 'unknown'
-      console.warn('[audit API] PSI failed, returning custom audit only:', reason)
+      console.warn('[audit API] PSI unavailable, returning custom audit only:', psiError)
     }
     if (!customAuditResult) {
-      const reason = settled[1].status === 'rejected' ? settled[1].reason?.message : 'timed out or returned null'
-      console.warn('[audit API] Custom audit unavailable, returning PSI only:', reason)
+      console.warn('[audit API] Custom audit unavailable, returning PSI only:', customError)
     }
 
     // Calculate combined health score (handle partial results gracefully)
@@ -319,6 +461,7 @@ export async function GET(req: NextRequest) {
       healthScore,
       fromCache: false,
       partial: !lighthouseResult || !customAuditResult,
+      partialReason: !lighthouseResult ? (psiError || 'PSI unavailable') : !customAuditResult ? (customError || 'Custom audit unavailable') : undefined,
     }
 
     // Only cache complete results (both engines succeeded)
@@ -330,16 +473,17 @@ export async function GET(req: NextRequest) {
   } catch (err: any) {
     clearTimeout(globalTimer)
 
-    // Propagate PSI-specific status codes
+    // This catch should rarely fire now — but just in case
     if (err instanceof PSIError) {
       const clientStatus = err.status === 429 ? 429 : err.status >= 400 && err.status < 500 ? 400 : 502
       return NextResponse.json({ error: err.message }, { status: clientStatus })
     }
 
-    console.error('[audit API]', err)
+    console.error('[audit API] Unexpected error:', err)
     return NextResponse.json(
-      { error: err?.message || 'Audit timed out. Try again.' },
+      { error: err?.message || 'An unexpected error occurred. Please try again.' },
       { status: 502 }
     )
   }
 }
+
