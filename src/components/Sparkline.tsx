@@ -30,23 +30,17 @@ export default function Sparkline({
   const chartW = width - padding.left - padding.right
   const chartH = height - padding.top - padding.bottom
 
-  if (data.length < 2) {
-    return (
-      <div style={{ width, height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Need 2+ data points</span>
-      </div>
-    )
-  }
-
-  const min = Math.min(...data) - 5
-  const max = Math.max(...data) + 5
+  const min = data.length >= 2 ? Math.min(...data) - 5 : 0
+  const max = data.length >= 2 ? Math.max(...data) + 5 : 100
   const range = max - min || 1
 
-  const points = data.map((v, i) => ({
-    x: padding.left + (i / (data.length - 1)) * chartW,
-    y: padding.top + chartH - ((v - min) / range) * chartH,
-    value: v,
-  }))
+  const points = data.length >= 2
+    ? data.map((v, i) => ({
+        x: padding.left + (i / (data.length - 1)) * chartW,
+        y: padding.top + chartH - ((v - min) / range) * chartH,
+        value: v,
+      }))
+    : []
 
   // Build SVG path with smooth curves (catmull-rom → cubic bezier)
   const linePath = points.reduce((path, p, i) => {
@@ -59,10 +53,12 @@ export default function Sparkline({
   }, '')
 
   // Area path (closed below the line)
-  const areaPath = `${linePath} L ${points[points.length - 1].x} ${height - padding.bottom} L ${points[0].x} ${height - padding.bottom} Z`
+  const areaPath = points.length > 0
+    ? `${linePath} L ${points[points.length - 1].x} ${height - padding.bottom} L ${points[0].x} ${height - padding.bottom} Z`
+    : ''
 
   const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
-    if (!svgRef.current) return
+    if (!svgRef.current || points.length === 0) return
     const rect = svgRef.current.getBoundingClientRect()
     const mouseX = e.clientX - rect.left
     // Find closest point
@@ -76,7 +72,16 @@ export default function Sparkline({
       }
     }
     setHoveredIndex(closestIdx)
-  }, [points])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, width, height])
+
+  if (data.length < 2) {
+    return (
+      <div style={{ width, height, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Need 2+ data points</span>
+      </div>
+    )
+  }
 
   const gradientId = `sparkline-grad-${color.replace('#', '')}`
 

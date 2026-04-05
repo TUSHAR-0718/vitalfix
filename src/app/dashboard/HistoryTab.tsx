@@ -55,7 +55,8 @@ export default function HistoryTab({ currentUrl, onLoadScan }: HistoryTabProps) 
       latest: urlScans[urlScans.length - 1],
       previous: urlScans[urlScans.length - 2],
     }
-  }, [currentUrl, scans])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUrl, scans.length])
 
   const groups = useMemo(() => groupByDate(scans), [scans])
 
