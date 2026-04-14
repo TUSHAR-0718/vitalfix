@@ -5,14 +5,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { runCustomAudit, calculateHealthScore } from '@/lib/audit-engine'
 import { cacheKey, getCached, setCache } from '@/lib/audit-engine/cache'
+import { fetchPSI, getPoolStatus } from '@/lib/psi-pool'
 
 // Vercel serverless function config — audit can take up to 120s
 export const maxDuration = 180
-
-// Warn at startup if PSI API key is missing (heavily rate-limited without it)
-if (!process.env.GOOGLE_PSI_API_KEY) {
-  console.warn('[audit API] GOOGLE_PSI_API_KEY is not set. PSI requests will be heavily rate-limited by Google.')
-}
 
 // ── Structured error for PSI failures ──
 class PSIError extends Error {
@@ -70,119 +66,102 @@ function cleanupRateLimitMap() {
   })
 }
 
-// ── PSI fetch with dedicated timeout ──
-const PSI_ENDPOINT = 'https://www.googleapis.com/pagespeedonline/v5/runPagespeed'
+// ── PSI fetch via key pool ──
 const CATEGORIES = ['performance', 'accessibility', 'best-practices', 'seo']
 const PSI_TIMEOUT = 90_000     // 90s for PSI — Google's API is slow for complex pages
 const CUSTOM_AUDIT_TIMEOUT = 60_000 // 60s for the custom audit engine
 const GLOBAL_TIMEOUT = 150_000 // 150s absolute cap — accommodates PSI full (90s) + lite fallback (45s)
 
 async function fetchLighthouse(url: string, strategy: string) {
-  const apiKey = process.env.GOOGLE_PSI_API_KEY
-  const keyParam = apiKey ? `&key=${apiKey}` : ''
-  const psiUrl = `${PSI_ENDPOINT}?url=${encodeURIComponent(url)}&strategy=${strategy}&${CATEGORIES.map(c => `category=${c}`).join('&')}${keyParam}`
+  // Route through the PSI key pool (handles key rotation, rate limiting, 429 recovery)
+  const res = await fetchPSI({
+    url,
+    strategy,
+    categories: CATEGORIES,
+    timeout: PSI_TIMEOUT,
+  })
 
-  // Dedicated AbortController so PSI timeout doesn't waste custom audit results
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), PSI_TIMEOUT)
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}))
+    const message = errBody?.error?.message || `PageSpeed Insights returned ${res.status}`
+    throw new PSIError(message, res.status)
+  }
 
-  try {
-    const res = await fetch(psiUrl, {
-      signal: controller.signal,
-      next: { revalidate: 0 },
+  const data = await res.json()
+  const lhr = data.lighthouseResult
+  const fex = data.loadingExperience
+  const audit = (id: string) => lhr?.audits?.[id]
+  const auditVal = (id: string) => audit(id)?.displayValue ?? 'N/A'
+  const auditScore = (id: string): number => Math.round((audit(id)?.score ?? 0) * 100)
+
+  const scores = {
+    performance: Math.round((lhr?.categories?.performance?.score ?? 0) * 100),
+    accessibility: Math.round((lhr?.categories?.accessibility?.score ?? 0) * 100),
+    bestPractices: Math.round((lhr?.categories?.['best-practices']?.score ?? 0) * 100),
+    seo: Math.round((lhr?.categories?.seo?.score ?? 0) * 100),
+  }
+
+  const cwv = {
+    lcp: { value: auditVal('largest-contentful-paint'), score: auditScore('largest-contentful-paint'), numericValue: audit('largest-contentful-paint')?.numericValue ?? 0 },
+    inp: {
+      value: auditVal('interaction-to-next-paint') !== 'N/A' ? auditVal('interaction-to-next-paint') : auditVal('total-blocking-time'),
+      score: audit('interaction-to-next-paint')?.score != null ? auditScore('interaction-to-next-paint') : auditScore('total-blocking-time'),
+      numericValue: audit('interaction-to-next-paint')?.numericValue ?? audit('total-blocking-time')?.numericValue ?? 0,
+    },
+    cls: { value: auditVal('cumulative-layout-shift'), score: auditScore('cumulative-layout-shift'), numericValue: audit('cumulative-layout-shift')?.numericValue ?? 0 },
+    fcp: { value: auditVal('first-contentful-paint'), score: auditScore('first-contentful-paint') },
+    ttfb: { value: auditVal('server-response-time'), score: auditScore('server-response-time'), numericValue: audit('server-response-time')?.numericValue ?? 0 },
+    si: { value: auditVal('speed-index'), score: auditScore('speed-index') },
+    tbt: { value: auditVal('total-blocking-time'), score: auditScore('total-blocking-time'), numericValue: audit('total-blocking-time')?.numericValue ?? 0 },
+  }
+
+  const fieldData = fex?.metrics ? {
+    lcp: fex.metrics.LARGEST_CONTENTFUL_PAINT_MS ? { p75: fex.metrics.LARGEST_CONTENTFUL_PAINT_MS.percentile, category: fex.metrics.LARGEST_CONTENTFUL_PAINT_MS.category } : null,
+    fid: fex.metrics.FIRST_INPUT_DELAY_MS ? { p75: fex.metrics.FIRST_INPUT_DELAY_MS.percentile, category: fex.metrics.FIRST_INPUT_DELAY_MS.category } : null,
+    cls: fex.metrics.CUMULATIVE_LAYOUT_SHIFT_SCORE ? { p75: fex.metrics.CUMULATIVE_LAYOUT_SHIFT_SCORE.percentile, category: fex.metrics.CUMULATIVE_LAYOUT_SHIFT_SCORE.category } : null,
+    inp: fex.metrics.INTERACTION_TO_NEXT_PAINT ? { p75: fex.metrics.INTERACTION_TO_NEXT_PAINT.percentile, category: fex.metrics.INTERACTION_TO_NEXT_PAINT.category } : null,
+    overallCategory: fex.overall_category,
+  } : null
+
+  const opportunities = lhr?.audits ?? {}
+  const opportunityIds = [
+    'render-blocking-resources', 'uses-optimized-images', 'uses-webp-images',
+    'uses-text-compression', 'uses-long-cache-ttl', 'efficient-animated-content',
+    'unused-javascript', 'unused-css-rules', 'uses-passive-event-listeners',
+    'no-document-write', 'dom-size', 'bootup-time', 'mainthread-work-breakdown',
+    'uses-rel-preload', 'uses-rel-preconnect', 'font-display',
+  ]
+  const topOpportunities = opportunityIds
+    .filter(id => opportunities[id] && opportunities[id].score !== null && opportunities[id].score < 1)
+    .map(id => {
+      const a = opportunities[id]
+      return {
+        id, title: a.title, description: a.description,
+        score: Math.round((a.score ?? 0) * 100),
+        displayValue: a.displayValue ?? '',
+        impact: a.score < 0.5 ? 'high' : a.score < 0.9 ? 'medium' : 'low',
+      }
     })
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 8)
 
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}))
-      const message = errBody?.error?.message || `PageSpeed Insights returned ${res.status}`
-      throw new PSIError(message, res.status)
-    }
+  const diagnosticIds = [
+    'largest-contentful-paint-element', 'layout-shift-elements',
+    'long-tasks', 'third-party-summary', 'network-requests',
+    'resource-summary', 'total-byte-weight',
+  ]
+  const diagnostics = diagnosticIds
+    .filter(id => lhr?.audits?.[id])
+    .map(id => ({ id, title: lhr.audits[id].title, displayValue: lhr.audits[id].displayValue ?? '', score: lhr.audits[id].score }))
 
-    const data = await res.json()
-    const lhr = data.lighthouseResult
-    const fex = data.loadingExperience
-    const audit = (id: string) => lhr?.audits?.[id]
-    const auditVal = (id: string) => audit(id)?.displayValue ?? 'N/A'
-    const auditScore = (id: string): number => Math.round((audit(id)?.score ?? 0) * 100)
-
-    const scores = {
-      performance: Math.round((lhr?.categories?.performance?.score ?? 0) * 100),
-      accessibility: Math.round((lhr?.categories?.accessibility?.score ?? 0) * 100),
-      bestPractices: Math.round((lhr?.categories?.['best-practices']?.score ?? 0) * 100),
-      seo: Math.round((lhr?.categories?.seo?.score ?? 0) * 100),
-    }
-
-    const cwv = {
-      lcp: { value: auditVal('largest-contentful-paint'), score: auditScore('largest-contentful-paint'), numericValue: audit('largest-contentful-paint')?.numericValue ?? 0 },
-      inp: {
-        value: auditVal('interaction-to-next-paint') !== 'N/A' ? auditVal('interaction-to-next-paint') : auditVal('total-blocking-time'),
-        score: audit('interaction-to-next-paint')?.score != null ? auditScore('interaction-to-next-paint') : auditScore('total-blocking-time'),
-        numericValue: audit('interaction-to-next-paint')?.numericValue ?? audit('total-blocking-time')?.numericValue ?? 0,
-      },
-      cls: { value: auditVal('cumulative-layout-shift'), score: auditScore('cumulative-layout-shift'), numericValue: audit('cumulative-layout-shift')?.numericValue ?? 0 },
-      fcp: { value: auditVal('first-contentful-paint'), score: auditScore('first-contentful-paint') },
-      ttfb: { value: auditVal('server-response-time'), score: auditScore('server-response-time'), numericValue: audit('server-response-time')?.numericValue ?? 0 },
-      si: { value: auditVal('speed-index'), score: auditScore('speed-index') },
-      tbt: { value: auditVal('total-blocking-time'), score: auditScore('total-blocking-time'), numericValue: audit('total-blocking-time')?.numericValue ?? 0 },
-    }
-
-    const fieldData = fex?.metrics ? {
-      lcp: fex.metrics.LARGEST_CONTENTFUL_PAINT_MS ? { p75: fex.metrics.LARGEST_CONTENTFUL_PAINT_MS.percentile, category: fex.metrics.LARGEST_CONTENTFUL_PAINT_MS.category } : null,
-      fid: fex.metrics.FIRST_INPUT_DELAY_MS ? { p75: fex.metrics.FIRST_INPUT_DELAY_MS.percentile, category: fex.metrics.FIRST_INPUT_DELAY_MS.category } : null,
-      cls: fex.metrics.CUMULATIVE_LAYOUT_SHIFT_SCORE ? { p75: fex.metrics.CUMULATIVE_LAYOUT_SHIFT_SCORE.percentile, category: fex.metrics.CUMULATIVE_LAYOUT_SHIFT_SCORE.category } : null,
-      inp: fex.metrics.INTERACTION_TO_NEXT_PAINT ? { p75: fex.metrics.INTERACTION_TO_NEXT_PAINT.percentile, category: fex.metrics.INTERACTION_TO_NEXT_PAINT.category } : null,
-      overallCategory: fex.overall_category,
-    } : null
-
-    const opportunities = lhr?.audits ?? {}
-    const opportunityIds = [
-      'render-blocking-resources', 'uses-optimized-images', 'uses-webp-images',
-      'uses-text-compression', 'uses-long-cache-ttl', 'efficient-animated-content',
-      'unused-javascript', 'unused-css-rules', 'uses-passive-event-listeners',
-      'no-document-write', 'dom-size', 'bootup-time', 'mainthread-work-breakdown',
-      'uses-rel-preload', 'uses-rel-preconnect', 'font-display',
-    ]
-    const topOpportunities = opportunityIds
-      .filter(id => opportunities[id] && opportunities[id].score !== null && opportunities[id].score < 1)
-      .map(id => {
-        const a = opportunities[id]
-        return {
-          id, title: a.title, description: a.description,
-          score: Math.round((a.score ?? 0) * 100),
-          displayValue: a.displayValue ?? '',
-          impact: a.score < 0.5 ? 'high' : a.score < 0.9 ? 'medium' : 'low',
-        }
-      })
-      .sort((a, b) => a.score - b.score)
-      .slice(0, 8)
-
-    const diagnosticIds = [
-      'largest-contentful-paint-element', 'layout-shift-elements',
-      'long-tasks', 'third-party-summary', 'network-requests',
-      'resource-summary', 'total-byte-weight',
-    ]
-    const diagnostics = diagnosticIds
-      .filter(id => lhr?.audits?.[id])
-      .map(id => ({ id, title: lhr.audits[id].title, displayValue: lhr.audits[id].displayValue ?? '', score: lhr.audits[id].score }))
-
-    return {
-      url, strategy,
-      fetchedAt: new Date().toISOString(),
-      scores, cwv, fieldData,
-      opportunities: topOpportunities,
-      diagnostics,
-      lighthouseVersion: lhr?.lighthouseVersion,
-      userAgent: lhr?.environment?.hostUserAgent ?? '',
-    }
-  } catch (err) {
-    // Re-throw PSIError as-is; wrap AbortError with a clear message
-    if (err instanceof PSIError) throw err
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new PSIError('PageSpeed Insights timed out after 90 seconds. The site may be too slow or complex.', 504)
-    }
-    throw err
-  } finally {
-    clearTimeout(timer)
+  return {
+    url, strategy,
+    fetchedAt: new Date().toISOString(),
+    scores, cwv, fieldData,
+    opportunities: topOpportunities,
+    diagnostics,
+    lighthouseVersion: lhr?.lighthouseVersion,
+    userAgent: lhr?.environment?.hostUserAgent ?? '',
   }
 }
 
@@ -191,109 +170,95 @@ async function fetchLighthouse(url: string, strategy: string) {
 const PSI_LITE_TIMEOUT = 45_000 // 45s — should be enough for perf-only
 
 async function fetchLighthouseLite(url: string, strategy: string) {
-  const apiKey = process.env.GOOGLE_PSI_API_KEY
-  const keyParam = apiKey ? `&key=${apiKey}` : ''
-  const psiUrl = `${PSI_ENDPOINT}?url=${encodeURIComponent(url)}&strategy=${strategy}&category=performance${keyParam}`
+  // Route through the PSI key pool (perf-only, shorter timeout)
+  const res = await fetchPSI({
+    url,
+    strategy,
+    categories: ['performance'],
+    timeout: PSI_LITE_TIMEOUT,
+  })
 
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), PSI_LITE_TIMEOUT)
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({}))
+    throw new PSIError(errBody?.error?.message || `PSI lite returned ${res.status}`, res.status)
+  }
 
-  try {
-    const res = await fetch(psiUrl, {
-      signal: controller.signal,
-      next: { revalidate: 0 },
+  const data = await res.json()
+  const lhr = data.lighthouseResult
+  const fex = data.loadingExperience
+  const audit = (id: string) => lhr?.audits?.[id]
+  const auditVal = (id: string) => audit(id)?.displayValue ?? 'N/A'
+  const auditScore = (id: string): number => Math.round((audit(id)?.score ?? 0) * 100)
+
+  const scores = {
+    performance: Math.round((lhr?.categories?.performance?.score ?? 0) * 100),
+    accessibility: 0, // Not available in lite mode
+    bestPractices: 0,
+    seo: 0,
+  }
+
+  const cwv = {
+    lcp: { value: auditVal('largest-contentful-paint'), score: auditScore('largest-contentful-paint'), numericValue: audit('largest-contentful-paint')?.numericValue ?? 0 },
+    inp: {
+      value: auditVal('interaction-to-next-paint') !== 'N/A' ? auditVal('interaction-to-next-paint') : auditVal('total-blocking-time'),
+      score: audit('interaction-to-next-paint')?.score != null ? auditScore('interaction-to-next-paint') : auditScore('total-blocking-time'),
+      numericValue: audit('interaction-to-next-paint')?.numericValue ?? audit('total-blocking-time')?.numericValue ?? 0,
+    },
+    cls: { value: auditVal('cumulative-layout-shift'), score: auditScore('cumulative-layout-shift'), numericValue: audit('cumulative-layout-shift')?.numericValue ?? 0 },
+    fcp: { value: auditVal('first-contentful-paint'), score: auditScore('first-contentful-paint') },
+    ttfb: { value: auditVal('server-response-time'), score: auditScore('server-response-time'), numericValue: audit('server-response-time')?.numericValue ?? 0 },
+    si: { value: auditVal('speed-index'), score: auditScore('speed-index') },
+    tbt: { value: auditVal('total-blocking-time'), score: auditScore('total-blocking-time'), numericValue: audit('total-blocking-time')?.numericValue ?? 0 },
+  }
+
+  const fieldData = fex?.metrics ? {
+    lcp: fex.metrics.LARGEST_CONTENTFUL_PAINT_MS ? { p75: fex.metrics.LARGEST_CONTENTFUL_PAINT_MS.percentile, category: fex.metrics.LARGEST_CONTENTFUL_PAINT_MS.category } : null,
+    fid: fex.metrics.FIRST_INPUT_DELAY_MS ? { p75: fex.metrics.FIRST_INPUT_DELAY_MS.percentile, category: fex.metrics.FIRST_INPUT_DELAY_MS.category } : null,
+    cls: fex.metrics.CUMULATIVE_LAYOUT_SHIFT_SCORE ? { p75: fex.metrics.CUMULATIVE_LAYOUT_SHIFT_SCORE.percentile, category: fex.metrics.CUMULATIVE_LAYOUT_SHIFT_SCORE.category } : null,
+    inp: fex.metrics.INTERACTION_TO_NEXT_PAINT ? { p75: fex.metrics.INTERACTION_TO_NEXT_PAINT.percentile, category: fex.metrics.INTERACTION_TO_NEXT_PAINT.category } : null,
+    overallCategory: fex.overall_category,
+  } : null
+
+  // Lite mode has fewer opportunities since only performance audits run
+  const opportunities = lhr?.audits ?? {}
+  const opportunityIds = [
+    'render-blocking-resources', 'uses-optimized-images', 'uses-webp-images',
+    'uses-text-compression', 'uses-long-cache-ttl', 'unused-javascript',
+    'unused-css-rules', 'dom-size', 'bootup-time', 'mainthread-work-breakdown',
+  ]
+  const topOpportunities = opportunityIds
+    .filter(id => opportunities[id] && opportunities[id].score !== null && opportunities[id].score < 1)
+    .map(id => {
+      const a = opportunities[id]
+      return {
+        id, title: a.title, description: a.description,
+        score: Math.round((a.score ?? 0) * 100),
+        displayValue: a.displayValue ?? '',
+        impact: a.score < 0.5 ? 'high' : a.score < 0.9 ? 'medium' : 'low',
+      }
     })
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 8)
 
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}))
-      throw new PSIError(errBody?.error?.message || `PSI lite returned ${res.status}`, res.status)
-    }
+  const diagnosticIds = [
+    'largest-contentful-paint-element', 'layout-shift-elements',
+    'long-tasks', 'third-party-summary', 'total-byte-weight',
+  ]
+  const diagnostics = diagnosticIds
+    .filter(id => lhr?.audits?.[id])
+    .map(id => ({ id, title: lhr.audits[id].title, displayValue: lhr.audits[id].displayValue ?? '', score: lhr.audits[id].score }))
 
-    const data = await res.json()
-    const lhr = data.lighthouseResult
-    const fex = data.loadingExperience
-    const audit = (id: string) => lhr?.audits?.[id]
-    const auditVal = (id: string) => audit(id)?.displayValue ?? 'N/A'
-    const auditScore = (id: string): number => Math.round((audit(id)?.score ?? 0) * 100)
+  console.log('[audit API] PSI lite succeeded (perf-only fallback)')
 
-    const scores = {
-      performance: Math.round((lhr?.categories?.performance?.score ?? 0) * 100),
-      accessibility: 0, // Not available in lite mode
-      bestPractices: 0,
-      seo: 0,
-    }
-
-    const cwv = {
-      lcp: { value: auditVal('largest-contentful-paint'), score: auditScore('largest-contentful-paint'), numericValue: audit('largest-contentful-paint')?.numericValue ?? 0 },
-      inp: {
-        value: auditVal('interaction-to-next-paint') !== 'N/A' ? auditVal('interaction-to-next-paint') : auditVal('total-blocking-time'),
-        score: audit('interaction-to-next-paint')?.score != null ? auditScore('interaction-to-next-paint') : auditScore('total-blocking-time'),
-        numericValue: audit('interaction-to-next-paint')?.numericValue ?? audit('total-blocking-time')?.numericValue ?? 0,
-      },
-      cls: { value: auditVal('cumulative-layout-shift'), score: auditScore('cumulative-layout-shift'), numericValue: audit('cumulative-layout-shift')?.numericValue ?? 0 },
-      fcp: { value: auditVal('first-contentful-paint'), score: auditScore('first-contentful-paint') },
-      ttfb: { value: auditVal('server-response-time'), score: auditScore('server-response-time'), numericValue: audit('server-response-time')?.numericValue ?? 0 },
-      si: { value: auditVal('speed-index'), score: auditScore('speed-index') },
-      tbt: { value: auditVal('total-blocking-time'), score: auditScore('total-blocking-time'), numericValue: audit('total-blocking-time')?.numericValue ?? 0 },
-    }
-
-    const fieldData = fex?.metrics ? {
-      lcp: fex.metrics.LARGEST_CONTENTFUL_PAINT_MS ? { p75: fex.metrics.LARGEST_CONTENTFUL_PAINT_MS.percentile, category: fex.metrics.LARGEST_CONTENTFUL_PAINT_MS.category } : null,
-      fid: fex.metrics.FIRST_INPUT_DELAY_MS ? { p75: fex.metrics.FIRST_INPUT_DELAY_MS.percentile, category: fex.metrics.FIRST_INPUT_DELAY_MS.category } : null,
-      cls: fex.metrics.CUMULATIVE_LAYOUT_SHIFT_SCORE ? { p75: fex.metrics.CUMULATIVE_LAYOUT_SHIFT_SCORE.percentile, category: fex.metrics.CUMULATIVE_LAYOUT_SHIFT_SCORE.category } : null,
-      inp: fex.metrics.INTERACTION_TO_NEXT_PAINT ? { p75: fex.metrics.INTERACTION_TO_NEXT_PAINT.percentile, category: fex.metrics.INTERACTION_TO_NEXT_PAINT.category } : null,
-      overallCategory: fex.overall_category,
-    } : null
-
-    // Lite mode has fewer opportunities since only performance audits run
-    const opportunities = lhr?.audits ?? {}
-    const opportunityIds = [
-      'render-blocking-resources', 'uses-optimized-images', 'uses-webp-images',
-      'uses-text-compression', 'uses-long-cache-ttl', 'unused-javascript',
-      'unused-css-rules', 'dom-size', 'bootup-time', 'mainthread-work-breakdown',
-    ]
-    const topOpportunities = opportunityIds
-      .filter(id => opportunities[id] && opportunities[id].score !== null && opportunities[id].score < 1)
-      .map(id => {
-        const a = opportunities[id]
-        return {
-          id, title: a.title, description: a.description,
-          score: Math.round((a.score ?? 0) * 100),
-          displayValue: a.displayValue ?? '',
-          impact: a.score < 0.5 ? 'high' : a.score < 0.9 ? 'medium' : 'low',
-        }
-      })
-      .sort((a, b) => a.score - b.score)
-      .slice(0, 8)
-
-    const diagnosticIds = [
-      'largest-contentful-paint-element', 'layout-shift-elements',
-      'long-tasks', 'third-party-summary', 'total-byte-weight',
-    ]
-    const diagnostics = diagnosticIds
-      .filter(id => lhr?.audits?.[id])
-      .map(id => ({ id, title: lhr.audits[id].title, displayValue: lhr.audits[id].displayValue ?? '', score: lhr.audits[id].score }))
-
-    console.log('[audit API] PSI lite succeeded (perf-only fallback)')
-
-    return {
-      url, strategy,
-      fetchedAt: new Date().toISOString(),
-      scores, cwv, fieldData,
-      opportunities: topOpportunities,
-      diagnostics,
-      lighthouseVersion: lhr?.lighthouseVersion,
-      userAgent: lhr?.environment?.hostUserAgent ?? '',
-      liteMode: true, // Flag so UI can show "partial PSI data" notice
-    }
-  } catch (err) {
-    if (err instanceof PSIError) throw err
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new PSIError('PSI lite also timed out after 45 seconds.', 504)
-    }
-    throw err
-  } finally {
-    clearTimeout(timer)
+  return {
+    url, strategy,
+    fetchedAt: new Date().toISOString(),
+    scores, cwv, fieldData,
+    opportunities: topOpportunities,
+    diagnostics,
+    lighthouseVersion: lhr?.lighthouseVersion,
+    userAgent: lhr?.environment?.hostUserAgent ?? '',
+    liteMode: true, // Flag so UI can show "partial PSI data" notice
   }
 }
 
