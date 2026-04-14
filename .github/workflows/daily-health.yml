@@ -47,6 +47,11 @@ jobs:
         run: npm run type-check
         continue-on-error: true
 
+      - name: Tests
+        id: tests
+        run: npm run test
+        continue-on-error: true
+
       - name: Build
         id: build
         run: npm run build
@@ -91,11 +96,12 @@ jobs:
 
             const lint     = status('${{ steps.lint.outcome }}');
             const typecheck = status('${{ steps.typecheck.outcome }}');
+            const tests    = status('${{ steps.tests.outcome }}');
             const build    = status('${{ steps.build.outcome }}');
             const audit    = status('${{ steps.audit.outcome }}');
             const bundleSize = '${{ steps.bundle.outputs.size }}' || 'N/A';
 
-            const allPassed = ['${{ steps.lint.outcome }}', '${{ steps.typecheck.outcome }}', '${{ steps.build.outcome }}'].every(o => o === 'success');
+            const allPassed = ['${{ steps.lint.outcome }}', '${{ steps.typecheck.outcome }}', '${{ steps.tests.outcome }}', '${{ steps.build.outcome }}'].every(o => o === 'success');
             const header = allPassed ? '## ✅ All Checks Passed' : '## ⚠️ Issues Detected';
 
             const body = [
@@ -109,6 +115,7 @@ jobs:
               `|-------|--------|`,
               `| ESLint | ${lint} |`,
               `| TypeScript | ${typecheck} |`,
+              `| Tests | ${tests} |`,
               `| Production Build | ${build} |`,
               `| Dependency Audit | ${audit} |`,
               `| Bundle Size | 📦 ${bundleSize} |`,
@@ -161,7 +168,7 @@ jobs:
       # ── Fail the workflow if core checks failed ──
 
       - name: Evaluate results
-        if: steps.lint.outcome == 'failure' || steps.typecheck.outcome == 'failure' || steps.build.outcome == 'failure'
+        if: steps.lint.outcome == 'failure' || steps.typecheck.outcome == 'failure' || steps.tests.outcome == 'failure' || steps.build.outcome == 'failure'
         run: |
           echo "❌ One or more core checks failed. See the health report issue for details."
           exit 1
