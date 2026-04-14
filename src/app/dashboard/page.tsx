@@ -11,7 +11,9 @@ import DiagnosticsTab from './DiagnosticsTab'
 import FieldDataTab from './FieldDataTab'
 import SiteAuditTab from './SiteAuditTab'
 import HistoryTab from './HistoryTab'
-import { saveScan, getHistory, type StoredScan } from '@/lib/scan-history'
+import { saveScan, getHistory, type StoredScan } from '@/lib/scan-store'
+import { useAuth } from '@/components/AuthProvider'
+import { useSyncLocalData } from '@/hooks/useSyncLocalData'
 
 const connections = ['4G (Fast)', '4G (Slow)', '3G', 'Cable']
 const locations = ['US East (Virginia)', 'EU West (London)', 'Asia (Singapore)', 'AU (Sydney)']
@@ -47,26 +49,30 @@ export default function DashboardPage() {
   const [progressMsg, setProgressMsg] = useState('')
   const elapsedTimer = useRef<ReturnType<typeof setInterval> | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+  const { user } = useAuth()
+  useSyncLocalData()
 
   // Restore last audit result from localStorage on mount
   useEffect(() => {
-    try {
-      // Try new history system first
-      const history = getHistory()
-      if (history.length > 0) {
-        // We only have summary data in history, try legacy key for full result
-        const saved = localStorage.getItem(LEGACY_STORAGE_KEY)
-        if (saved) {
-          const parsed = JSON.parse(saved)
-          if (parsed.result) {
-            setResult(parsed.result)
-            setUrl(parsed.url || parsed.result.url || '')
-            setRunCount(1)
+    (async () => {
+      try {
+        // Try new history system first
+        const history = await getHistory(user?.id)
+        if (history.length > 0) {
+          // We only have summary data in history, try legacy key for full result
+          const saved = localStorage.getItem(LEGACY_STORAGE_KEY)
+          if (saved) {
+            const parsed = JSON.parse(saved)
+            if (parsed.result) {
+              setResult(parsed.result)
+              setUrl(parsed.url || parsed.result.url || '')
+              setRunCount(1)
+            }
           }
         }
-      }
-    } catch { /* localStorage unavailable or corrupted — ignore */ }
-  }, [])
+      } catch { /* localStorage unavailable or corrupted — ignore */ }
+    })()
+  }, [user?.id])
 
   // Cleanup timers on unmount
   useEffect(() => {
@@ -168,7 +174,7 @@ export default function DashboardPage() {
 
           // Save to scan history + persist last full result for reload
           try {
-            saveScan(data)
+            saveScan(data, user?.id)
             localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify({ result: data, url: targetUrl }))
           } catch { /* quota exceeded — ignore */ }
           stopProgressTimer()

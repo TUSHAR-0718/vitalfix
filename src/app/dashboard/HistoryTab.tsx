@@ -10,10 +10,11 @@ import ScoreRing from '@/components/ScoreRing'
 import Sparkline from '@/components/Sparkline'
 import {
   getHistory, getUrlHistory, deleteScan, clearHistory,
-  exportHistoryAsJson, relativeTime, groupByDate,
+  exportHistory, relativeTime, groupByDate,
   type StoredScan,
-} from '@/lib/scan-history'
+} from '@/lib/scan-store'
 import { scoreColor } from './utils'
+import { useAuth } from '@/components/AuthProvider'
 
 interface HistoryTabProps {
   currentUrl?: string
@@ -27,11 +28,12 @@ export default function HistoryTab({ currentUrl, onLoadScan }: HistoryTabProps) 
   const [showCompare, setShowCompare] = useState(false)
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
+  const { user } = useAuth()
 
-  // Load history on mount
+  // Load history on mount and when user changes
   useEffect(() => {
-    setScans(getHistory())
-  }, [])
+    getHistory(user?.id).then(setScans)
+  }, [user?.id])
 
   // Auto-expand first group
   useEffect(() => {
@@ -42,42 +44,48 @@ export default function HistoryTab({ currentUrl, onLoadScan }: HistoryTabProps) 
   }, [scans, expandedGroup])
 
   // Trend data for current URL
-  const trendData = useMemo(() => {
-    if (!currentUrl) return null
-    const urlScans = getUrlHistory(currentUrl)
-    if (urlScans.length < 2) return null
-    return {
-      scores: urlScans.map(s => s.healthScore),
-      labels: urlScans.map(s => {
-        const d = new Date(s.fetchedAt)
-        return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
-      }),
-      latest: urlScans[urlScans.length - 1],
-      previous: urlScans[urlScans.length - 2],
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUrl, scans.length])
+  const [trendData, setTrendData] = useState<{
+    scores: number[]; labels: string[];
+    latest: StoredScan; previous: StoredScan;
+  } | null>(null)
+
+  useEffect(() => {
+    if (!currentUrl) { setTrendData(null); return }
+    getUrlHistory(currentUrl, user?.id).then(data => {
+      if (data.length < 2) { setTrendData(null); return }
+      setTrendData({
+        scores: data.map(s => s.healthScore),
+        labels: data.map(s => {
+          const d = new Date(s.fetchedAt)
+          return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
+        }),
+        latest: data[data.length - 1],
+        previous: data[data.length - 2],
+      })
+    })
+  }, [currentUrl, scans.length, user?.id])
 
   const groups = useMemo(() => groupByDate(scans), [scans])
 
-  const handleDelete = (id: string) => {
-    deleteScan(id)
-    setScans(getHistory())
+  const handleDelete = async (id: string) => {
+    await deleteScan(id, user?.id)
+    const updated = await getHistory(user?.id)
+    setScans(updated)
     if (compareA?.id === id) setCompareA(null)
     if (compareB?.id === id) setCompareB(null)
   }
 
-  const handleClear = () => {
+  const handleClear = async () => {
     if (!confirmClear) { setConfirmClear(true); return }
-    clearHistory()
+    await clearHistory(user?.id)
     setScans([])
     setCompareA(null)
     setCompareB(null)
     setConfirmClear(false)
   }
 
-  const handleExport = () => {
-    const blobUrl = exportHistoryAsJson()
+  const handleExport = async () => {
+    const blobUrl = await exportHistory(user?.id)
     const a = document.createElement('a')
     a.href = blobUrl
     a.download = `vitalfix-history-${new Date().toISOString().slice(0, 10)}.json`

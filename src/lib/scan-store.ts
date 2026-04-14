@@ -1,0 +1,218 @@
+// ── Unified Scan Store ──
+// Routes persistence to Supabase (if authenticated) or localStorage (fallback).
+// All public functions accept an optional userId — when provided AND Supabase is
+// configured, data goes to the cloud. Otherwise, localStorage is used.
+
+import { supabase } from '@/lib/supabase'
+import type { AuditResult } from '@/app/dashboard/types'
+import {
+  saveScan as localSave,
+  getHistory as localGetHistory,
+  getUrlHistory as localGetUrlHistory,
+  deleteScan as localDelete,
+  clearHistory as localClear,
+  exportHistoryAsJson as localExport,
+  type StoredScan,
+} from '@/lib/scan-history'
+
+// ── Re-export utilities that don't depend on storage backend ──
+export { relativeTime, groupByDate, type StoredScan } from '@/lib/scan-history'
+
+// ── Helpers: convert between StoredScan and DB row ──
+
+function toDbRow(scan: StoredScan, userId: string) {
+  return {
+    id: scan.id,
+    user_id: userId,
+    url: scan.url,
+    strategy: scan.strategy,
+    fetched_at: scan.fetchedAt,
+    health_score: scan.healthScore,
+    scores: scan.scores,
+    cwv_summary: scan.cwvSummary,
+    custom_audit_score: scan.customAuditScore,
+    total_findings: scan.totalFindings,
+    critical: scan.critical,
+    moderate: scan.moderate,
+    minor: scan.minor,
+    field_overall_category: scan.fieldOverallCategory,
+    partial: scan.partial,
+  }
+}
+
+function fromDbRow(row: any): StoredScan {
+  return {
+    id: row.id,
+    url: row.url,
+    strategy: row.strategy,
+    fetchedAt: row.fetched_at,
+    healthScore: row.health_score,
+    scores: row.scores,
+    cwvSummary: row.cwv_summary,
+    customAuditScore: row.custom_audit_score,
+    totalFindings: row.total_findings,
+    critical: row.critical,
+    moderate: row.moderate,
+    minor: row.minor,
+    fieldOverallCategory: row.field_overall_category,
+    partial: row.partial,
+  }
+}
+
+// ── Save a scan ──
+
+export async function saveScan(result: AuditResult, userId?: string | null): Promise<StoredScan> {
+  // Always save to localStorage as the local version of saveScan returns StoredScan
+  const stored = localSave(result)
+
+  // If authenticated + Supabase configured, also persist to cloud
+  if (userId && supabase) {
+    try {
+      const { error } = await supabase
+        .from('scans')
+        .upsert(toDbRow(stored, userId), { onConflict: 'id' })
+      if (error) console.error('[scan-store] Cloud save failed:', error.message)
+    } catch (e) {
+      console.error('[scan-store] Cloud save exception:', e)
+    }
+  }
+
+  return stored
+}
+
+// ── Get all history ──
+
+export async function getHistory(userId?: string | null): Promise<StoredScan[]> {
+  if (userId && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('scans')
+        .select('*')
+        .eq('user_id', userId)
+        .order('fetched_at', { ascending: false })
+        .limit(50)
+
+      if (!error && data) return data.map(fromDbRow)
+      console.error('[scan-store] Cloud fetch failed:', error?.message)
+    } catch (e) {
+      console.error('[scan-store] Cloud fetch exception:', e)
+    }
+  }
+
+  // Fallback to localStorage
+  return localGetHistory()
+}
+
+// ── Get URL-specific history ──
+
+export async function getUrlHistory(url: string, userId?: string | null): Promise<StoredScan[]> {
+  if (userId && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('scans')
+        .select('*')
+        .eq('user_id', userId)
+        .ilike('url', `%${url.replace(/^https?:\/\//, '').replace(/\/$/, '')}%`)
+        .order('fetched_at', { ascending: true })
+
+      if (!error && data) return data.map(fromDbRow)
+    } catch (e) {
+      console.error('[scan-store] Cloud URL history exception:', e)
+    }
+  }
+
+  return localGetUrlHistory(url)
+}
+
+// ── Delete a scan ──
+
+export async function deleteScan(id: string, userId?: string | null): Promise<void> {
+  // Always remove from localStorage
+  localDelete(id)
+
+  if (userId && supabase) {
+    try {
+      const { error } = await supabase
+        .from('scans')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', userId)
+      if (error) console.error('[scan-store] Cloud delete failed:', error.message)
+    } catch (e) {
+      console.error('[scan-store] Cloud delete exception:', e)
+    }
+  }
+}
+
+// ── Clear all history ──
+
+export async function clearHistory(userId?: string | null): Promise<void> {
+  localClear()
+
+  if (userId && supabase) {
+    try {
+      const { error } = await supabase
+        .from('scans')
+        .delete()
+        .eq('user_id', userId)
+      if (error) console.error('[scan-store] Cloud clear failed:', error.message)
+    } catch (e) {
+      console.error('[scan-store] Cloud clear exception:', e)
+    }
+  }
+}
+
+// ── Export (always reads from current source) ──
+
+export async function exportHistory(userId?: string | null): Promise<string> {
+  if (userId && supabase) {
+    const scans = await getHistory(userId)
+    const blob = new Blob([JSON.stringify(scans, null, 2)], { type: 'application/json' })
+    return URL.createObjectURL(blob)
+  }
+  return localExport()
+}
+
+// ── Migrate localStorage → Supabase (one-time on first login) ──
+
+const SYNC_FLAG = 'vitalfix-synced'
+
+export async function migrateLocalToCloud(userId: string): Promise<{ migrated: number }> {
+  if (!supabase) return { migrated: 0 }
+
+  // Check if already synced
+  try {
+    if (localStorage.getItem(SYNC_FLAG) === userId) return { migrated: 0 }
+  } catch { return { migrated: 0 } }
+
+  // Read all local scans
+  const localScans = localGetHistory()
+  if (localScans.length === 0) {
+    try { localStorage.setItem(SYNC_FLAG, userId) } catch {}
+    return { migrated: 0 }
+  }
+
+  console.log(`[scan-store] Migrating ${localScans.length} local scans to Supabase…`)
+
+  // Upsert all scans to cloud
+  const rows = localScans.map(scan => toDbRow(scan, userId))
+  const { error } = await supabase
+    .from('scans')
+    .upsert(rows, { onConflict: 'id' })
+
+  if (error) {
+    console.error('[scan-store] Migration failed:', error.message)
+    return { migrated: 0 }
+  }
+
+  // Success — clear localStorage and set sync flag
+  localClear()
+  try {
+    localStorage.setItem(SYNC_FLAG, userId)
+    // Also clear the legacy full result
+    localStorage.removeItem('vitalfix-last-audit')
+  } catch {}
+
+  console.log(`[scan-store] ✅ Migrated ${localScans.length} scans to cloud.`)
+  return { migrated: localScans.length }
+}

@@ -2,8 +2,10 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState } from 'react'
-import { Zap, Menu, X } from 'lucide-react'
+import { Zap, Menu, X, User, LogOut } from 'lucide-react'
 import ThemeToggle from './ThemeToggle'
+import { useAuth } from './AuthProvider'
+import AuthModal from './AuthModal'
 
 const links = [
   { href: '/', label: 'Home' },
@@ -18,8 +20,11 @@ const links = [
 export default function Navbar() {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
+  const [showAuth, setShowAuth] = useState(false)
+  const { user, signOut, isConfigured } = useAuth()
 
   return (
+    <>
     <nav style={{
       position: 'sticky', top: 0, zIndex: 100,
       background: 'var(--bg-nav)',
@@ -63,6 +68,43 @@ export default function Navbar() {
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
           <ThemeToggle />
+          {isConfigured && (
+            user ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span style={{
+                  fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)',
+                  maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  {user.email}
+                </span>
+                <button
+                  onClick={() => signOut()}
+                  title="Sign out"
+                  style={{
+                    background: 'none', border: '1px solid var(--border)',
+                    borderRadius: 6, padding: '0.3rem 0.5rem', cursor: 'pointer',
+                    color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.2rem',
+                    fontSize: '0.72rem', fontWeight: 600, transition: 'all 150ms ease',
+                  }}
+                >
+                  <LogOut size={12} /> Out
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowAuth(true)}
+                style={{
+                  background: 'none', border: '1px solid var(--border)',
+                  borderRadius: 100, padding: '0.35rem 0.85rem', cursor: 'pointer',
+                  color: 'var(--text-secondary)', fontSize: '0.78rem', fontWeight: 600,
+                  display: 'flex', alignItems: 'center', gap: '0.3rem',
+                  transition: 'all 150ms ease',
+                }}
+              >
+                <User size={13} /> Sign In
+              </button>
+            )
+          )}
           <Link href="/pricing" className="btn-primary" style={{
             fontSize: '0.78rem', padding: '0.4rem 1rem', borderRadius: 100,
             textDecoration: 'none',
@@ -109,5 +151,8 @@ export default function Navbar() {
         }
       `}</style>
     </nav>
+
+      {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
+    </>
   )
 }
