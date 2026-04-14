@@ -1,0 +1,85 @@
+# ──────────────────────────────────────────────────────────
+# VitalFix — Hotfix Fast-Track
+# Triggered on push to fix/* or hotfix/* branches.
+# Validates the fix and auto-creates a PR to main.
+# ──────────────────────────────────────────────────────────
+
+name: "Hotfix Fast-Track"
+
+on:
+  push:
+    branches:
+      - "fix/**"
+      - "hotfix/**"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: hotfix-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-and-pr:
+    name: Validate & Auto-PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Build
+        run: npm run build
+
+      # ── Auto-create PR if one doesn't exist ──
+
+      - name: Create pull request
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          # Derive a readable title from the branch name
+          # fix/broken-nav-link → "fix: broken nav link"
+          TITLE=$(echo "$BRANCH" | sed 's|^fix/||;s|^hotfix/||' | tr '-' ' ' | sed 's/^/fix: /')
+
+          # Check if a PR already exists for this branch
+          EXISTING=$(gh pr list --head "$BRANCH" --json number --jq 'length')
+
+          if [ "$EXISTING" = "0" ]; then
+            gh pr create \
+              --title "$TITLE" \
+              --body "## 🔧 Hotfix
+
+          **Branch:** \`$BRANCH\`
+          **Status:** ✅ All CI checks passed
+
+          > Auto-created by the Hotfix Fast-Track pipeline.
+          > Vercel preview will be available shortly.
+
+          ---
+          *Merge when ready. The PR gate CI will run again on merge.*" \
+              --base main \
+              --head "$BRANCH" \
+              --label "hotfix"
+            echo "✅ PR created for $BRANCH"
+          else
+            echo "ℹ️ PR already exists for $BRANCH — skipping creation"
+          fi
