@@ -16,12 +16,13 @@ import { saveScan, getHistory, type StoredScan } from '@/lib/scan-store'
 import { useAuth } from '@/components/AuthProvider'
 import { useSyncLocalData } from '@/hooks/useSyncLocalData'
 import { useAnalytics } from '@/hooks/useAnalytics'
+import { getConnectionProfile } from '@/lib/audit-context'
 
 const connections = ['4G (Fast)', '4G (Slow)', '3G', 'Cable']
 const locations = ['US East (Virginia)', 'EU West (London)', 'Asia (Singapore)', 'AU (Sydney)']
 
 const LEGACY_STORAGE_KEY = 'vitalfix-last-audit'
-const CLIENT_TIMEOUT = 160_000 // 160s — above server's 150s global timeout (90s PSI + 45s lite fallback + buffer)
+const CLIENT_TIMEOUT = 160_000 // 160s default — overridden by connection profile below
 const MAX_RETRIES = 2 // auto-retry up to 2x on timeout or network error
 
 // Progress messages that cycle during long audits
@@ -114,7 +115,7 @@ export default function DashboardPage() {
     let res: Response
     try {
       res = await fetch(
-        `/api/audit/full?url=${encodeURIComponent(targetUrl)}&strategy=${device}`,
+        `/api/audit/full?url=${encodeURIComponent(targetUrl)}&strategy=${device}&connection=${encodeURIComponent(connection)}&location=${encodeURIComponent(location)}`,
         { signal }
       )
     } catch (fetchErr: any) {
@@ -170,7 +171,10 @@ export default function DashboardPage() {
         // Create new AbortController with client-side timeout
         const controller = new AbortController()
         abortRef.current = controller
-        const timeoutId = setTimeout(() => controller.abort(), CLIENT_TIMEOUT)
+        // Adjust client timeout based on connection profile
+        const connProfile = getConnectionProfile(connection)
+        const adjustedTimeout = Math.round(CLIENT_TIMEOUT * connProfile.timeoutMultiplier)
+        const timeoutId = setTimeout(() => controller.abort(), adjustedTimeout)
 
         try {
           const data = await fetchAudit(targetUrl, controller.signal)

@@ -7,6 +7,11 @@ import { runCustomAudit, calculateHealthScore } from '@/lib/audit-engine'
 import { cacheKey, getCached, setCache } from '@/lib/audit-engine/cache'
 import { fetchPSI, getPoolStatus } from '@/lib/psi-pool'
 import { trackAuditEvent, updateDailyCounters } from '@/lib/analytics'
+import {
+  getConnectionProfile, getLocationProfile,
+  getRegionalInsights, rateMetric,
+  type ConnectionProfile, type LocationProfile,
+} from '@/lib/audit-context'
 
 // Vercel serverless function config — audit can take up to 120s
 export const maxDuration = 180
@@ -69,17 +74,18 @@ function cleanupRateLimitMap() {
 
 // ── PSI fetch via key pool ──
 const CATEGORIES = ['performance', 'accessibility', 'best-practices', 'seo']
-const PSI_TIMEOUT = 90_000     // 90s for PSI — Google's API is slow for complex pages
-const CUSTOM_AUDIT_TIMEOUT = 60_000 // 60s for the custom audit engine
-const GLOBAL_TIMEOUT = 150_000 // 150s absolute cap — accommodates PSI full (90s) + lite fallback (45s)
+// Base timeouts — scaled by connection profile in the handler
+const BASE_PSI_TIMEOUT = 90_000
+const BASE_CUSTOM_AUDIT_TIMEOUT = 60_000
+const BASE_GLOBAL_TIMEOUT = 150_000
 
-async function fetchLighthouse(url: string, strategy: string) {
+async function fetchLighthouse(url: string, strategy: string, timeout: number = BASE_PSI_TIMEOUT) {
   // Route through the PSI key pool (handles key rotation, rate limiting, 429 recovery)
   const res = await fetchPSI({
     url,
     strategy,
     categories: CATEGORIES,
-    timeout: PSI_TIMEOUT,
+    timeout,
   })
 
   if (!res.ok) {
@@ -168,15 +174,15 @@ async function fetchLighthouse(url: string, strategy: string) {
 
 // ── Lite PSI fetch — perf-only, shorter timeout ──
 // Fallback when the full 4-category request times out. Single-category is ~2-3x faster.
-const PSI_LITE_TIMEOUT = 45_000 // 45s — should be enough for perf-only
+const BASE_PSI_LITE_TIMEOUT = 45_000 // 45s — should be enough for perf-only
 
-async function fetchLighthouseLite(url: string, strategy: string) {
+async function fetchLighthouseLite(url: string, strategy: string, timeout: number = BASE_PSI_LITE_TIMEOUT) {
   // Route through the PSI key pool (perf-only, shorter timeout)
   const res = await fetchPSI({
     url,
     strategy,
     categories: ['performance'],
-    timeout: PSI_LITE_TIMEOUT,
+    timeout,
   })
 
   if (!res.ok) {
@@ -278,6 +284,17 @@ export async function GET(req: NextRequest) {
   }
   const strategy = rawStrategy as 'mobile' | 'desktop'
 
+  // Parse connection + location selectors
+  const connectionLabel = searchParams.get('connection') || '4G (Fast)'
+  const locationLabel = searchParams.get('location') || 'US East (Virginia)'
+  const connProfile = getConnectionProfile(connectionLabel)
+  const locProfile = getLocationProfile(locationLabel)
+
+  // Scale timeouts by connection profile
+  const PSI_TIMEOUT = Math.round(BASE_PSI_TIMEOUT * connProfile.timeoutMultiplier)
+  const CUSTOM_AUDIT_TIMEOUT = Math.round(BASE_CUSTOM_AUDIT_TIMEOUT * connProfile.timeoutMultiplier)
+  const GLOBAL_TIMEOUT = Math.round(BASE_GLOBAL_TIMEOUT * connProfile.timeoutMultiplier)
+
   if (!url) {
     return NextResponse.json({ error: 'Missing url parameter' }, { status: 400 })
   }
@@ -361,7 +378,7 @@ export async function GET(req: NextRequest) {
     // ── PSI with fallback: full 4-category → lite perf-only on timeout ──
     const psiWithFallback = async () => {
       try {
-        return await fetchLighthouse(parsedUrl.href, strategy)
+        return await fetchLighthouse(parsedUrl.href, strategy, PSI_TIMEOUT)
       } catch (err: any) {
         psiError = err?.message || 'PSI failed'
 
@@ -369,7 +386,8 @@ export async function GET(req: NextRequest) {
         if (err instanceof PSIError && (err.status === 504 || err.status >= 500)) {
           console.warn('[audit API] PSI full request failed, trying lite (perf-only)…')
           try {
-            return await fetchLighthouseLite(parsedUrl.href, strategy)
+            const PSI_LITE_TIMEOUT = Math.round(BASE_PSI_LITE_TIMEOUT * connProfile.timeoutMultiplier)
+            return await fetchLighthouseLite(parsedUrl.href, strategy, PSI_LITE_TIMEOUT)
           } catch (liteErr: any) {
             psiError = `PSI full and lite both failed: ${liteErr?.message || 'unknown'}`
             console.warn('[audit API] PSI lite also failed:', liteErr?.message)
@@ -439,6 +457,25 @@ export async function GET(req: NextRequest) {
       fromCache: false,
       partial: !lighthouseResult || !customAuditResult,
       partialReason: !lighthouseResult ? (psiError || 'PSI unavailable') : !customAuditResult ? (customError || 'Custom audit unavailable') : undefined,
+      // ── Audit context: connection + location metadata ──
+      auditContext: {
+        connection: { id: connProfile.id, label: connProfile.label, throughputMbps: connProfile.throughputMbps, expectedRttMs: connProfile.expectedRttMs },
+        location: { id: locProfile.id, label: locProfile.label, region: locProfile.region, ttfbAdjustMs: locProfile.ttfbAdjustMs },
+      },
+      // ── Regional performance insights ──
+      regionalInsights: getRegionalInsights(
+        { strategy, connection: connProfile, location: locProfile },
+        lighthouseResult?.cwv?.ttfb?.numericValue
+      ),
+      // ── Connection-aware CWV severity ratings ──
+      ...(lighthouseResult?.cwv ? {
+        cwvRatings: {
+          lcp: rateMetric('lcp', lighthouseResult.cwv.lcp.numericValue, { strategy, connection: connProfile, location: locProfile }),
+          fcp: rateMetric('fcp', lighthouseResult.cwv.fcp?.numericValue || 0, { strategy, connection: connProfile, location: locProfile }),
+          tbt: rateMetric('tbt', lighthouseResult.cwv.tbt.numericValue, { strategy, connection: connProfile, location: locProfile }),
+          ttfb: rateMetric('ttfb', lighthouseResult.cwv.ttfb.numericValue, { strategy, connection: connProfile, location: locProfile }),
+        },
+      } : {}),
     }
 
     // Only cache complete results (both engines succeeded)
