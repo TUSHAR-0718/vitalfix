@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { ArrowRight, Zap, BarChart3, Code2, CheckSquare, Gauge, TrendingUp, Search, Star, Activity } from 'lucide-react'
+import BenchmarkSection from '@/components/BenchmarkSection'
 
 const stats = [
   { value: '53%', label: 'of users leave if load > 3s', color: 'var(--red)' },
@@ -62,12 +63,7 @@ const steps = [
   },
 ]
 
-const benchmarks = [
-  { industry: 'E-commerce', lcp: '3.8s', inp: '320ms', cls: '0.18', lcpOk: false, inpOk: false, clsOk: false },
-  { industry: 'SaaS / Apps', lcp: '2.4s', inp: '180ms', cls: '0.09', lcpOk: true, inpOk: true, clsOk: true },
-  { industry: 'News / Media', lcp: '4.2s', inp: '410ms', cls: '0.22', lcpOk: false, inpOk: false, clsOk: false },
-  { industry: 'Portfolio', lcp: '1.9s', inp: '120ms', cls: '0.04', lcpOk: true, inpOk: true, clsOk: true },
-]
+
 
 const testimonials = [
   {
@@ -293,53 +289,8 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ── Industry Benchmarks ── */}
-      <section style={{ padding: '4rem 0', background: 'var(--bg-secondary)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
-        <div className="container-pad">
-          <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
-            <span className="badge badge-orange" style={{ marginBottom: '0.75rem', display: 'inline-flex' }}>Industry Benchmarks</span>
-            <h2 className="text-h1" style={{ marginTop: '0.5rem' }}>
-              How Does Your Site <span className="gradient-text-warm">Stack Up?</span>
-            </h2>
-            <p style={{ color: 'var(--text-secondary)', marginTop: '0.75rem', maxWidth: 480, margin: '0.75rem auto 0', fontSize: '0.9rem' }}>
-              Real-world CrUX p75 data by industry. Most sites are failing — here&apos;s where you stand.
-            </p>
-          </div>
-
-          <div className="glass-card" style={{ overflow: 'hidden', padding: 0 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 1fr', gap: 0, padding: '0.75rem 1.25rem', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' }}>
-              <span className="text-label">Industry</span>
-              {['LCP (p75)', 'INP (p75)', 'CLS (p75)'].map(h => (
-                <span key={h} className="text-label" style={{ textAlign: 'center' }}>{h}</span>
-              ))}
-            </div>
-            {benchmarks.map((b, i) => (
-              <div key={b.industry} style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 1fr', gap: 0, padding: '0.85rem 1.25rem', borderBottom: i < benchmarks.length - 1 ? '1px solid var(--border)' : 'none', alignItems: 'center' }}>
-                <span style={{ fontWeight: 600, fontSize: '0.85rem' }}>{b.industry}</span>
-                {[
-                  { val: b.lcp, ok: b.lcpOk },
-                  { val: b.inp, ok: b.inpOk },
-                  { val: b.cls, ok: b.clsOk },
-                ].map((cell, ci) => (
-                  <div key={ci} style={{ textAlign: 'center' }}>
-                    <span style={{
-                      fontSize: '0.8rem', fontWeight: 600, fontFamily: "'JetBrains Mono', monospace",
-                      color: cell.ok ? '#34d399' : '#f87171',
-                      padding: '0.15rem 0.45rem', borderRadius: 5,
-                      background: cell.ok ? 'rgba(52,211,153,0.06)' : 'rgba(248,113,113,0.06)',
-                    }}>
-                      {cell.val}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-          <p style={{ textAlign: 'center', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '0.75rem' }}>
-            Data from Chrome UX Report (CrUX) · Green = Good · Red = Needs Improvement
-          </p>
-        </div>
-      </section>
+      {/* ── Industry Benchmarks (interactive — with slide-over drawer) ── */}
+      <BenchmarkSection />
 
       {/* ── Testimonials ── */}
       <section className="section-pad">
