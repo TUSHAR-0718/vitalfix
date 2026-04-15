@@ -11,9 +11,11 @@ import DiagnosticsTab from './DiagnosticsTab'
 import FieldDataTab from './FieldDataTab'
 import SiteAuditTab from './SiteAuditTab'
 import HistoryTab from './HistoryTab'
+import AnalyticsTab from './AnalyticsTab'
 import { saveScan, getHistory, type StoredScan } from '@/lib/scan-store'
 import { useAuth } from '@/components/AuthProvider'
 import { useSyncLocalData } from '@/hooks/useSyncLocalData'
+import { useAnalytics } from '@/hooks/useAnalytics'
 
 const connections = ['4G (Fast)', '4G (Slow)', '3G', 'Cable']
 const locations = ['US East (Virginia)', 'EU West (London)', 'Asia (Singapore)', 'AU (Sydney)']
@@ -42,7 +44,7 @@ export default function DashboardPage() {
   const [location, setLocation] = useState('US East (Virginia)')
   const [connection, setConnection] = useState('4G (Fast)')
   const [runCount, setRunCount] = useState(0)
-  const [activeTab, setActiveTab] = useState<'overview' | 'opportunities' | 'diagnostics' | 'field' | 'siteaudit' | 'history'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'opportunities' | 'diagnostics' | 'field' | 'siteaudit' | 'history' | 'analytics'>('overview')
 
   // Progress tracking state
   const [elapsed, setElapsed] = useState(0)
@@ -51,6 +53,10 @@ export default function DashboardPage() {
   const abortRef = useRef<AbortController | null>(null)
   const { user } = useAuth()
   useSyncLocalData()
+  const { trackPageView, trackFeature } = useAnalytics()
+
+  // Track page view on mount
+  useEffect(() => { trackPageView('/dashboard') }, [trackPageView])
 
   // Restore last audit result from localStorage on mount
   useEffect(() => {
@@ -587,6 +593,7 @@ export default function DashboardPage() {
                 { id: 'diagnostics', label: 'Diagnostics', icon: <Eye size={13} /> },
                 { id: 'field', label: 'Field Data', icon: <Star size={13} /> },
                 { id: 'history', label: 'History', icon: <Clock size={13} /> },
+                { id: 'analytics', label: 'Analytics', icon: <BarChart3 size={13} /> },
               ] as const).map(t => (
                 <button key={t.id} onClick={() => setActiveTab(t.id as any)} className={`tab-underline${activeTab === t.id ? ' active' : ''}`}>
                   {t.icon} {t.label}
@@ -601,6 +608,7 @@ export default function DashboardPage() {
             {activeTab === 'field' && <FieldDataTab result={result} />}
             {activeTab === 'siteaudit' && <SiteAuditTab result={result} />}
             {activeTab === 'history' && <HistoryTab currentUrl={result.url} />}
+            {activeTab === 'analytics' && <AnalyticsTab />}
 
             {/* ── CTA ── */}
             <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginTop: '2rem' }}>

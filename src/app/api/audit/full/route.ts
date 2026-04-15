@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { runCustomAudit, calculateHealthScore } from '@/lib/audit-engine'
 import { cacheKey, getCached, setCache } from '@/lib/audit-engine/cache'
 import { fetchPSI, getPoolStatus } from '@/lib/psi-pool'
+import { trackAuditEvent, updateDailyCounters } from '@/lib/analytics'
 
 // Vercel serverless function config — audit can take up to 120s
 export const maxDuration = 180
@@ -281,12 +282,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Missing url parameter' }, { status: 400 })
   }
 
+  // Extract IP early (needed for analytics tracking)
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || req.headers.get('x-real-ip') || 'unknown'
+
   // Validate URL
   let parsedUrl: URL
   try {
     parsedUrl = new URL(url)
     if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error()
   } catch {
+    trackAuditEvent('invalid_url', ip, { url_attempted: url }).catch(() => {})
+    updateDailyCounters({ invalid_urls: 1 }).catch(() => {})
     return NextResponse.json({ error: 'Invalid URL. Must start with http:// or https://' }, { status: 400 })
   }
 
@@ -296,7 +302,6 @@ export async function GET(req: NextRequest) {
   }
 
   // Rate limiting
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || req.headers.get('x-real-ip') || 'unknown'
   if (!checkRateLimit(ip)) {
     return NextResponse.json(
       { error: 'Rate limit exceeded. Try again in 60 seconds.' },
@@ -315,8 +320,15 @@ export async function GET(req: NextRequest) {
   const key = cacheKey(parsedUrl.href, strategy)
   const cached = getCached<any>(key)
   if (cached) {
+    trackAuditEvent('cache_hit', ip, { url: parsedUrl.hostname, strategy }).catch(() => {})
+    updateDailyCounters({ cache_hits: 1 }).catch(() => {})
     return NextResponse.json({ ...cached, fromCache: true })
   }
+
+  // ── Analytics: track audit start ──
+  const auditStartTime = Date.now()
+  trackAuditEvent('audit_run', ip, { url: parsedUrl.hostname, strategy }).catch(() => {})
+  updateDailyCounters({ total_audits: 1, cache_misses: 1 }).catch(() => {})
 
   // ── Run PSI and Custom Audit INDEPENDENTLY ──
   // Architecture: Each engine has its own timeout. One failing does NOT kill the other.
@@ -434,6 +446,18 @@ export async function GET(req: NextRequest) {
       setCache(key, response)
     }
 
+    // ── Analytics: track success ──
+    const latencyMs = Date.now() - auditStartTime
+    trackAuditEvent('audit_success', ip, {
+      url: parsedUrl.hostname, strategy, latency_ms: latencyMs,
+      health_score: healthScore, partial: response.partial, cache_hit: false,
+    }).catch(() => {})
+    updateDailyCounters({
+      successful: response.partial ? 0 : 1,
+      partial: response.partial ? 1 : 0,
+      avg_latency_ms: latencyMs,
+    }).catch(() => {})
+
     return NextResponse.json(response)
   } catch (err: any) {
     clearTimeout(globalTimer)
@@ -445,6 +469,15 @@ export async function GET(req: NextRequest) {
     }
 
     console.error('[audit API] Unexpected error:', err)
+    // ── Analytics: track failure ──
+    const failLatency = Date.now() - auditStartTime
+    trackAuditEvent('audit_fail', ip, {
+      url: parsedUrl?.hostname, strategy, latency_ms: failLatency,
+      error_type: err instanceof PSIError ? 'psi_error' : 'unexpected',
+      error_message: err?.message?.slice(0, 200),
+    }).catch(() => {})
+    updateDailyCounters({ failed: 1, api_failures: 1 }).catch(() => {})
+
     return NextResponse.json(
       { error: err?.message || 'An unexpected error occurred. Please try again.' },
       { status: 502 }
