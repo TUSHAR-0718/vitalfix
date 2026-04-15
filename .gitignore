@@ -42,3 +42,6 @@ Thumbs.db
 *.tsbuildinfo
 next-env.d.ts
 test-results/
+
+# Sentry
+.env.sentry-build-plugin

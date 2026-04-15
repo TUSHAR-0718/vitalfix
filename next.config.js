@@ -1,3 +1,5 @@
+const { withSentryConfig } = require('@sentry/nextjs')
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Production security headers
@@ -38,4 +40,20 @@ const nextConfig = {
   poweredByHeader: false,
 }
 
-module.exports = nextConfig
+module.exports = withSentryConfig(nextConfig, {
+  // Sentry organization and project slugs
+  org: process.env.SENTRY_ORG || "___ORG_SLUG___",
+  project: process.env.SENTRY_PROJECT || "___PROJECT_SLUG___",
+
+  // Source map upload auth token
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+
+  // Upload wider set of client source files for better stack traces
+  widenClientFileUpload: true,
+
+  // Proxy API route to bypass ad-blockers
+  tunnelRoute: "/monitoring",
+
+  // Suppress build output in non-CI environments
+  silent: !process.env.CI,
+})
