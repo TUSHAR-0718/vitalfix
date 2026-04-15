@@ -1,178 +1,609 @@
-import { Check, Zap, Shield, Star } from 'lucide-react'
+'use client'
+
+import { useState } from 'react'
+import { Check, Star, Zap, Shield, Building2, ArrowRight, HelpCircle, ChevronDown, ChevronUp, Sparkles, BarChart3, Download, Clock, Users, Globe, Lock, Headphones, Code2 } from 'lucide-react'
 import Link from 'next/link'
 
+// ── Plan Data ──
 const plans = [
   {
+    id: 'free',
     name: 'Free',
-    price: '$0',
-    per: 'forever',
-    desc: 'Everything you need to get started fixing Core Web Vitals.',
-    color: 'var(--accent)',
+    tagline: 'Get started',
+    monthlyPrice: 0,
+    yearlyPrice: 0,
+    desc: 'Everything you need to start auditing and fixing Core Web Vitals.',
+    color: '#34d399',
+    icon: <Zap size={18} />,
     features: [
-      '8 production code snippets',
-      'LCP, CLS, INP, Lazy Loading',
-      '40-point audit checklist',
-      'Interactive score tools',
-      'Metric explainer guides',
-      'Community access',
+      { text: '3 audits per day', highlight: false },
+      { text: 'Basic performance reports', highlight: false },
+      { text: 'Issue detection & categorization', highlight: false },
+      { text: 'Last 10 scans in history', highlight: false },
+      { text: 'Standard recommendations', highlight: false },
+      { text: 'Code snippet library access', highlight: false },
     ],
-    cta: 'Get Started Free',
-    href: '/library',
+    cta: 'Start Free',
+    href: '/dashboard',
     highlight: false,
   },
   {
+    id: 'pro',
     name: 'Pro',
-    price: '$29',
-    per: 'per month',
-    desc: 'Advanced tools, monitoring, and CI integration for professional devs.',
+    tagline: 'Most popular',
+    monthlyPrice: 9,
+    yearlyPrice: 89,
+    desc: 'Unlimited audits, deep insights, and tools built for professional developers.',
     color: '#818cf8',
+    icon: <Sparkles size={18} />,
     features: [
-      'Everything in Free',
-      '60+ curated code snippets',
-      'CI/CD Lighthouse integration',
-      'Real User Monitoring (RUM) dashboard',
-      'Automated CWV regression alerts',
-      'Priority email support',
-      'Team workspace (up to 5 members)',
-      'Custom performance budgets',
+      { text: 'Unlimited audits', highlight: true },
+      { text: 'Historical trend tracking', highlight: true },
+      { text: 'Benchmark comparison', highlight: false },
+      { text: 'Downloadable PDF reports', highlight: true },
+      { text: 'Advanced issue insights', highlight: false },
+      { text: 'Faster processing priority', highlight: true },
+      { text: 'Priority recommendations', highlight: false },
+      { text: 'Full analytics dashboard', highlight: true },
     ],
-    cta: 'Start 14-day Trial',
+    cta: 'Upgrade to Pro',
     href: '#',
     highlight: true,
   },
   {
-    name: 'Teams',
-    price: '$99',
-    per: 'per month',
-    desc: 'Full-stack CWV observability for agencies and growing startups.',
+    id: 'enterprise',
+    name: 'Enterprise',
+    tagline: 'For teams',
+    monthlyPrice: -1, // Custom
+    yearlyPrice: -1,
+    desc: 'Multi-site monitoring, team collaboration, and dedicated support for organizations.',
     color: '#60a5fa',
+    icon: <Building2 size={18} />,
     features: [
-      'Everything in Pro',
-      'Unlimited team members',
-      'Multi-site monitoring',
-      'Slack & PagerDuty alerts',
-      'Dedicated onboarding call',
-      'SLA guarantee',
-      'White-label reporting',
-      'Custom snippet library',
+      { text: 'Multi-site monitoring', highlight: true },
+      { text: 'Team dashboards & collaboration', highlight: true },
+      { text: 'Dedicated account support', highlight: false },
+      { text: 'Full API access', highlight: true },
+      { text: 'White-label reports', highlight: false },
+      { text: 'SLA & priority uptime', highlight: false },
+      { text: 'Advanced analytics & exports', highlight: false },
+      { text: 'Custom integrations', highlight: false },
     ],
     cta: 'Contact Sales',
-    href: '#',
+    href: 'mailto:hello@vitalfix.dev',
     highlight: false,
   },
 ]
 
 const faqs = [
-  { q: 'Is the free plan actually free forever?', a: 'Yes. The code snippets, audit checklist, and interactive tools are completely free with no trial period.' },
-  { q: 'What is included in the Real User Monitoring dashboard?', a: 'You get a field data dashboard powered by the Web Vitals JS library, showing p75 scores per page, device type, and connection speed over time.' },
-  { q: 'Can I cancel my Pro subscription anytime?', a: 'Absolutely. Cancel anytime from your billing dashboard with no questions asked and no cancellation fees.' },
-  { q: 'Do you offer a discount for freelancers or students?', a: 'Yes — email us at hello@vitalfix.dev with proof of student status or your freelancer portfolio for a 50% discount.' },
+  {
+    q: 'Is the Free plan really free forever?',
+    a: 'Yes. The Free plan includes 3 daily audits, basic reports, and access to the full code snippet library — no credit card, no trial, no catch.',
+  },
+  {
+    q: 'How does yearly billing save me money?',
+    a: 'Yearly billing is $89/year instead of $108/year ($9/mo × 12). That\'s a 20% discount — you save $19 every year.',
+  },
+  {
+    q: 'Can I cancel my Pro subscription anytime?',
+    a: 'Absolutely. Cancel anytime from your account dashboard. No cancellation fees, no questions asked. Your access continues until the end of the billing period.',
+  },
+  {
+    q: 'What does "faster processing priority" mean?',
+    a: 'Pro users get priority queue access for PSI audits, reducing wait times during peak hours. Free users share a standard queue.',
+  },
+  {
+    q: 'Do you offer student or open-source discounts?',
+    a: 'Yes — email us at hello@vitalfix.dev with proof of student status or your open-source project link for a 50% discount on Pro.',
+  },
+  {
+    q: 'What\'s included in the Enterprise plan?',
+    a: 'Enterprise includes everything in Pro, plus multi-site monitoring, team dashboards, API access, white-label reports, dedicated support, and custom SLA. Contact us for custom pricing.',
+  },
+]
+
+const comparisonFeatures = [
+  { feature: 'Daily audits', free: '3', pro: 'Unlimited', enterprise: 'Unlimited' },
+  { feature: 'Scan history', free: 'Last 10', pro: 'Unlimited', enterprise: 'Unlimited' },
+  { feature: 'Performance reports', free: 'Basic', pro: 'Advanced', enterprise: 'Advanced + Custom' },
+  { feature: 'PDF export', free: '—', pro: '✓', enterprise: '✓' },
+  { feature: 'Trend tracking', free: '—', pro: '✓', enterprise: '✓' },
+  { feature: 'Analytics dashboard', free: '—', pro: '✓', enterprise: '✓' },
+  { feature: 'Priority processing', free: '—', pro: '✓', enterprise: '✓' },
+  { feature: 'Team collaboration', free: '—', pro: '—', enterprise: '✓' },
+  { feature: 'API access', free: '—', pro: '—', enterprise: '✓' },
+  { feature: 'White-label reports', free: '—', pro: '—', enterprise: '✓' },
+  { feature: 'Dedicated support', free: '—', pro: '—', enterprise: '✓' },
+  { feature: 'Custom SLA', free: '—', pro: '—', enterprise: '✓' },
 ]
 
 export default function PricingPage() {
+  const [isYearly, setIsYearly] = useState(false)
+  const [openFaq, setOpenFaq] = useState<number | null>(null)
+
+  const yearlySavings = Math.round((1 - 89 / (9 * 12)) * 100) // ~18% ≈ 20%
+
   return (
     <div style={{ minHeight: '100vh' }}>
-      {/* Header */}
-      <section style={{ padding: '5rem 0 3rem', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-subtle)', textAlign: 'center' }}>
-        <div className="container-pad">
+      {/* ── Hero Section ── */}
+      <section style={{
+        padding: '5rem 0 3.5rem',
+        background: 'var(--bg-secondary)',
+        borderBottom: '1px solid var(--border-subtle)',
+        textAlign: 'center',
+        position: 'relative',
+        overflow: 'hidden',
+      }}>
+        {/* Background glow */}
+        <div style={{
+          position: 'absolute', top: '-40%', left: '50%', transform: 'translateX(-50%)',
+          width: 600, height: 400, borderRadius: '50%',
+          background: 'radial-gradient(ellipse, rgba(129,140,248,0.06), transparent 70%)',
+          pointerEvents: 'none',
+        }} />
+
+        <div className="container-pad" style={{ position: 'relative' }}>
           <span className="badge badge-accent" style={{ marginBottom: '1rem' }}>Pricing</span>
-          <h1 style={{ fontSize: 'clamp(2rem, 5vw, 3.2rem)', fontWeight: 800, letterSpacing: '-0.02em', marginBottom: '0.75rem' }}>
-            Simple, <span className="gradient-text">Transparent Pricing</span>
+          <h1 style={{
+            fontSize: 'clamp(2rem, 5vw, 3.2rem)',
+            fontWeight: 800,
+            letterSpacing: '-0.03em',
+            marginBottom: '0.75rem',
+            lineHeight: 1.1,
+          }}>
+            Simple, <span className="gradient-text">transparent pricing</span>
           </h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '1.05rem', maxWidth: 480, margin: '0 auto', lineHeight: 1.7 }}>
-            Start free. Upgrade only when you need monitoring and team features.
+          <p style={{
+            color: 'var(--text-secondary)', fontSize: '1.05rem',
+            maxWidth: 520, margin: '0 auto 2.5rem', lineHeight: 1.7,
+          }}>
+            Start free. Upgrade when you need unlimited audits, deep analytics, and team features.
           </p>
+
+          {/* ── Monthly / Yearly Toggle ── */}
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: '0.75rem',
+            padding: '0.35rem', borderRadius: 12,
+            background: 'var(--bg)', border: '1px solid var(--border)',
+          }}>
+            <button
+              onClick={() => setIsYearly(false)}
+              style={{
+                padding: '0.5rem 1.25rem', borderRadius: 9, border: 'none',
+                fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer',
+                background: !isYearly ? 'var(--bg-card)' : 'transparent',
+                color: !isYearly ? 'var(--text-primary)' : 'var(--text-muted)',
+                boxShadow: !isYearly ? '0 1px 3px rgba(0,0,0,0.15)' : 'none',
+                transition: 'all 200ms',
+              }}
+            >
+              Monthly
+            </button>
+            <button
+              onClick={() => setIsYearly(true)}
+              style={{
+                padding: '0.5rem 1.25rem', borderRadius: 9, border: 'none',
+                fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer',
+                background: isYearly ? 'var(--bg-card)' : 'transparent',
+                color: isYearly ? 'var(--text-primary)' : 'var(--text-muted)',
+                boxShadow: isYearly ? '0 1px 3px rgba(0,0,0,0.15)' : 'none',
+                transition: 'all 200ms',
+                display: 'flex', alignItems: 'center', gap: '0.4rem',
+              }}
+            >
+              Yearly
+              <span style={{
+                fontSize: '0.65rem', fontWeight: 700,
+                padding: '0.15rem 0.45rem', borderRadius: 6,
+                background: 'rgba(52,211,153,0.12)', color: '#34d399',
+                border: '1px solid rgba(52,211,153,0.2)',
+              }}>
+                Save {yearlySavings}%
+              </span>
+            </button>
+          </div>
         </div>
       </section>
 
-      {/* Plans */}
-      <section style={{ padding: '4rem 0' }}>
+      {/* ── Pricing Cards ── */}
+      <section style={{ padding: '4rem 0 3rem' }}>
         <div className="container-pad">
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem', alignItems: 'start' }}>
-            {plans.map(p => (
-              <div key={p.name} style={{
-                borderRadius: 20, padding: '2.25rem',
-                border: `1px solid ${p.highlight ? p.color + '50' : 'var(--border)'}`,
-                background: p.highlight ? `linear-gradient(160deg, ${p.color}12, transparent)` : 'var(--bg-card)',
-                position: 'relative',
-                boxShadow: p.highlight ? `0 0 40px ${p.color}18` : 'none',
-              }}>
-                {p.highlight && (
-                  <div style={{
-                    position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)',
-                    padding: '0.3rem 1rem', borderRadius: 100,
-                    background: `linear-gradient(90deg, #7c6bff, #38bdf8)`,
-                    fontSize: '0.75rem', fontWeight: 700, color: '#fff', whiteSpace: 'nowrap',
-                    display: 'flex', alignItems: 'center', gap: '0.3rem',
-                  }}>
-                    <Star size={11} fill="#fff" /> Most Popular
-                  </div>
-                )}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))',
+            gap: '1.25rem',
+            alignItems: 'start',
+          }}>
+            {plans.map((p, idx) => {
+              const price = p.monthlyPrice === -1
+                ? null
+                : isYearly
+                  ? p.yearlyPrice === 0 ? 0 : Math.round(p.yearlyPrice / 12)
+                  : p.monthlyPrice
 
-                <div style={{ marginBottom: '1.5rem' }}>
-                  <div style={{ fontWeight: 700, fontSize: '0.9rem', color: p.color, marginBottom: '0.5rem' }}>{p.name}</div>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.4rem', marginBottom: '0.5rem' }}>
-                    <span style={{ fontSize: '2.8rem', fontWeight: 900, letterSpacing: '-0.03em', color: 'var(--text-primary)' }}>{p.price}</span>
-                    <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>{p.per}</span>
-                  </div>
-                  <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>{p.desc}</p>
-                </div>
-
-                <Link href={p.href} style={{
-                  display: 'block', textAlign: 'center', textDecoration: 'none',
-                  padding: '0.75rem 1.5rem', borderRadius: 10, fontWeight: 700, fontSize: '0.9rem',
-                  background: p.highlight ? `linear-gradient(135deg, #7c6bff, #38bdf8)` : 'var(--bg)',
-                  color: p.highlight ? '#fff' : 'var(--text-primary)',
-                  border: p.highlight ? 'none' : '1px solid var(--border)',
-                  marginBottom: '1.75rem',
-                  transition: 'all 0.2s',
-                }}>
-                  {p.cta}
-                </Link>
-
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
-                  {p.features.map(f => (
-                    <div key={f} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.65rem' }}>
-                      <Check size={15} color={p.color} style={{ marginTop: 2, flexShrink: 0 }} />
-                      <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{f}</span>
+              return (
+                <div
+                  key={p.id}
+                  style={{
+                    borderRadius: 20,
+                    padding: p.highlight ? '2.5rem' : '2.25rem',
+                    border: `1px solid ${p.highlight ? 'rgba(129,140,248,0.3)' : 'var(--border)'}`,
+                    background: p.highlight
+                      ? 'linear-gradient(160deg, rgba(129,140,248,0.06), rgba(96,165,250,0.03), transparent)'
+                      : 'var(--bg-card)',
+                    position: 'relative',
+                    boxShadow: p.highlight
+                      ? '0 0 60px rgba(129,140,248,0.1), 0 20px 60px rgba(0,0,0,0.15)'
+                      : '0 1px 3px rgba(0,0,0,0.08)',
+                    transition: 'all 300ms cubic-bezier(0.16, 1, 0.3, 1)',
+                    transform: p.highlight ? 'scale(1.02)' : 'none',
+                    animation: `fadeUpStagger 0.5s cubic-bezier(0.16, 1, 0.3, 1) ${idx * 0.08}s forwards`,
+                    opacity: 0,
+                  }}
+                >
+                  {/* Most Popular badge */}
+                  {p.highlight && (
+                    <div style={{
+                      position: 'absolute', top: -14, left: '50%', transform: 'translateX(-50%)',
+                      padding: '0.3rem 1.1rem', borderRadius: 100,
+                      background: 'linear-gradient(135deg, #7c6bff, #38bdf8)',
+                      fontSize: '0.72rem', fontWeight: 700, color: '#fff',
+                      whiteSpace: 'nowrap',
+                      display: 'flex', alignItems: 'center', gap: '0.3rem',
+                      boxShadow: '0 4px 15px rgba(124,107,255,0.3)',
+                    }}>
+                      <Star size={11} fill="#fff" /> Most Popular
                     </div>
-                  ))}
+                  )}
+
+                  {/* Plan header */}
+                  <div style={{ marginBottom: '1.75rem' }}>
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: '0.5rem',
+                      marginBottom: '0.65rem',
+                    }}>
+                      <span style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        width: 32, height: 32, borderRadius: 8,
+                        background: `${p.color}15`, color: p.color,
+                      }}>
+                        {p.icon}
+                      </span>
+                      <span style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }}>
+                        {p.name}
+                      </span>
+                    </div>
+
+                    {/* Price */}
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.3rem', marginBottom: '0.5rem' }}>
+                      {price !== null ? (
+                        <>
+                          <span style={{
+                            fontSize: '3rem', fontWeight: 900, letterSpacing: '-0.04em',
+                            color: 'var(--text-primary)', lineHeight: 1,
+                          }}>
+                            ${price}
+                          </span>
+                          <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+                            {price === 0 ? '/forever' : '/mo'}
+                          </span>
+                        </>
+                      ) : (
+                        <span style={{
+                          fontSize: '2rem', fontWeight: 800, letterSpacing: '-0.03em',
+                          color: 'var(--text-primary)', lineHeight: 1,
+                        }}>
+                          Custom
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Yearly price note */}
+                    {p.id === 'pro' && isYearly && (
+                      <div style={{
+                        fontSize: '0.75rem', color: '#34d399', fontWeight: 600,
+                        display: 'flex', alignItems: 'center', gap: '0.3rem',
+                        marginBottom: '0.25rem',
+                      }}>
+                        <Sparkles size={11} />
+                        ${p.yearlyPrice}/year — Save ${9 * 12 - p.yearlyPrice}
+                      </div>
+                    )}
+
+                    <p style={{
+                      fontSize: '0.85rem', color: 'var(--text-secondary)',
+                      lineHeight: 1.6, marginTop: '0.25rem',
+                    }}>
+                      {p.desc}
+                    </p>
+                  </div>
+
+                  {/* CTA */}
+                  <Link href={p.href} style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+                    textDecoration: 'none',
+                    padding: '0.8rem 1.5rem', borderRadius: 11, fontWeight: 700, fontSize: '0.9rem',
+                    background: p.highlight ? 'linear-gradient(135deg, #7c6bff, #38bdf8)' : 'var(--bg)',
+                    color: p.highlight ? '#fff' : 'var(--text-primary)',
+                    border: p.highlight ? 'none' : '1px solid var(--border)',
+                    marginBottom: '1.75rem',
+                    transition: 'all 200ms cubic-bezier(0.16, 1, 0.3, 1)',
+                    boxShadow: p.highlight ? '0 4px 20px rgba(124,107,255,0.25)' : 'none',
+                  }}>
+                    {p.cta}
+                    <ArrowRight size={15} />
+                  </Link>
+
+                  {/* Features */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+                    {p.id !== 'free' && (
+                      <div style={{
+                        fontSize: '0.7rem', fontWeight: 600, textTransform: 'uppercase',
+                        letterSpacing: '0.06em', color: 'var(--text-muted)',
+                        marginBottom: '0.2rem',
+                      }}>
+                        {p.id === 'pro' ? 'Everything in Free, plus:' : 'Everything in Pro, plus:'}
+                      </div>
+                    )}
+                    {p.features.map(f => (
+                      <div key={f.text} style={{
+                        display: 'flex', alignItems: 'flex-start', gap: '0.6rem',
+                      }}>
+                        <Check size={14} color={p.color} style={{ marginTop: 2, flexShrink: 0 }} />
+                        <span style={{
+                          fontSize: '0.84rem', lineHeight: 1.5,
+                          color: f.highlight ? 'var(--text-primary)' : 'var(--text-secondary)',
+                          fontWeight: f.highlight ? 600 : 400,
+                        }}>
+                          {f.text}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
+              )
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Trust Strip ── */}
+      <section style={{
+        padding: '2.5rem 0',
+        background: 'var(--bg-secondary)',
+        borderTop: '1px solid var(--border-subtle)',
+        borderBottom: '1px solid var(--border-subtle)',
+      }}>
+        <div className="container-pad" style={{
+          display: 'flex', justifyContent: 'center', gap: '2.5rem', flexWrap: 'wrap',
+        }}>
+          {[
+            { icon: <Shield size={18} color="#34d399" />, text: 'No credit card for Free' },
+            { icon: <Lock size={18} color="#818cf8" />, text: '14-day money-back guarantee' },
+            { icon: <Zap size={18} color="#fbbf24" />, text: 'Cancel Pro anytime' },
+            { icon: <Globe size={18} color="#60a5fa" />, text: 'Used by developers worldwide' },
+          ].map(t => (
+            <div key={t.text} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              {t.icon}
+              <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                {t.text}
+              </span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Feature Comparison Table ── */}
+      <section style={{ padding: '5rem 0 4rem' }}>
+        <div className="container-pad">
+          <h2 style={{
+            fontSize: 'clamp(1.5rem, 3vw, 2rem)', fontWeight: 800,
+            textAlign: 'center', marginBottom: '0.75rem', letterSpacing: '-0.02em',
+          }}>
+            Compare <span className="gradient-text">all features</span>
+          </h2>
+          <p style={{
+            color: 'var(--text-secondary)', fontSize: '0.9rem',
+            textAlign: 'center', marginBottom: '3rem', maxWidth: 480, margin: '0 auto 3rem',
+          }}>
+            Every plan includes the core audit engine. Here&apos;s how they differ.
+          </p>
+
+          <div style={{
+            maxWidth: 780, margin: '0 auto',
+            borderRadius: 16, overflow: 'hidden',
+            border: '1px solid var(--border)',
+            background: 'var(--bg-card)',
+          }}>
+            {/* Table header */}
+            <div style={{
+              display: 'grid', gridTemplateColumns: '1.6fr 1fr 1fr 1fr',
+              padding: '0.85rem 1.25rem',
+              background: 'var(--bg-secondary)',
+              borderBottom: '1px solid var(--border)',
+              gap: '0.5rem',
+            }}>
+              <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Feature
+              </span>
+              {['Free', 'Pro', 'Enterprise'].map(name => (
+                <span key={name} style={{
+                  fontSize: '0.72rem', fontWeight: 700, textAlign: 'center',
+                  color: name === 'Pro' ? '#818cf8' : 'var(--text-muted)',
+                  textTransform: 'uppercase', letterSpacing: '0.05em',
+                }}>
+                  {name}
+                </span>
+              ))}
+            </div>
+
+            {/* Table rows */}
+            {comparisonFeatures.map((row, i) => (
+              <div key={row.feature} style={{
+                display: 'grid', gridTemplateColumns: '1.6fr 1fr 1fr 1fr',
+                padding: '0.7rem 1.25rem',
+                borderBottom: i < comparisonFeatures.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                gap: '0.5rem',
+                transition: 'background 150ms',
+              }}>
+                <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                  {row.feature}
+                </span>
+                {[row.free, row.pro, row.enterprise].map((val, j) => (
+                  <span key={j} style={{
+                    fontSize: '0.82rem', textAlign: 'center', fontWeight: 500,
+                    color: val === '✓' ? '#34d399' : val === '—' ? 'var(--text-muted)' : 'var(--text-primary)',
+                  }}>
+                    {val}
+                  </span>
+                ))}
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Trust bar */}
-      <section style={{ padding: '3rem 0', background: 'var(--bg-secondary)', borderTop: '1px solid var(--border-subtle)' }}>
-        <div className="container-pad" style={{ display: 'flex', justifyContent: 'center', gap: '3rem', flexWrap: 'wrap' }}>
-          {[
-            { icon: <Shield size={20} color="#818cf8" />, text: 'No credit card required for Free' },
-            { icon: <Zap size={20} color="#34d399" />, text: '14-day money-back guarantee' },
-            { icon: <Star size={20} color="#fbbf24" />, text: 'Cancel Pro anytime, no fees' },
-          ].map(t => (
-            <div key={t.text} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-              {t.icon}
-              <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', fontWeight: 500 }}>{t.text}</span>
-            </div>
-          ))}
+      {/* ── What's Included Strip ── */}
+      <section style={{
+        padding: '4rem 0',
+        background: 'var(--bg-secondary)',
+        borderTop: '1px solid var(--border-subtle)',
+      }}>
+        <div className="container-pad">
+          <h2 style={{
+            fontSize: 'clamp(1.3rem, 3vw, 1.75rem)', fontWeight: 800,
+            textAlign: 'center', marginBottom: '2.5rem', letterSpacing: '-0.02em',
+          }}>
+            Every plan includes
+          </h2>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: '1.25rem',
+          }}>
+            {[
+              { icon: <BarChart3 size={18} />, title: 'Real Lighthouse Scores', desc: 'Live PageSpeed Insights API — not synthetic simulations.', color: '#818cf8' },
+              { icon: <Shield size={18} />, title: '8-Module Site Audit', desc: 'Security, accessibility, images, headings, meta tags, and more.', color: '#34d399' },
+              { icon: <Code2 size={18} />, title: 'Code Snippet Library', desc: 'Production-ready fixes for LCP, CLS, INP, lazy loading.', color: '#60a5fa' },
+              { icon: <Download size={18} />, title: 'Actionable Reports', desc: 'Every audit includes prioritized recommendations and fix guides.', color: '#fbbf24' },
+            ].map(f => (
+              <div key={f.title} className="glass-card" style={{ padding: '1.5rem' }}>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '0.5rem',
+                  marginBottom: '0.65rem',
+                }}>
+                  <span style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: 30, height: 30, borderRadius: 7,
+                    background: `${f.color}12`, color: f.color,
+                  }}>
+                    {f.icon}
+                  </span>
+                  <span style={{ fontWeight: 700, fontSize: '0.88rem' }}>{f.title}</span>
+                </div>
+                <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                  {f.desc}
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* FAQ */}
+      {/* ── FAQ ── */}
       <section style={{ padding: '5rem 0' }}>
         <div className="container-pad">
-          <h2 style={{ fontSize: 'clamp(1.5rem, 3vw, 2rem)', fontWeight: 800, textAlign: 'center', marginBottom: '3rem', letterSpacing: '-0.02em' }}>
-            Frequently Asked Questions
+          <h2 style={{
+            fontSize: 'clamp(1.5rem, 3vw, 2rem)', fontWeight: 800,
+            textAlign: 'center', marginBottom: '0.75rem', letterSpacing: '-0.02em',
+          }}>
+            Frequently asked questions
           </h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(420px, 100%), 1fr))', gap: '1.25rem', maxWidth: 920, margin: '0 auto' }}>
-            {faqs.map(f => (
-              <div key={f.q} className="glass-card" style={{ padding: '1.5rem' }}>
-                <p style={{ fontWeight: 700, fontSize: '0.9rem', marginBottom: '0.5rem', color: 'var(--text-primary)' }}>{f.q}</p>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.65 }}>{f.a}</p>
+          <p style={{
+            color: 'var(--text-secondary)', fontSize: '0.9rem',
+            textAlign: 'center', marginBottom: '3rem',
+          }}>
+            Can&apos;t find what you&apos;re looking for? <a href="mailto:hello@vitalfix.dev" style={{ color: 'var(--accent)', fontWeight: 600 }}>Email us</a>
+          </p>
+
+          <div style={{ maxWidth: 700, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {faqs.map((f, i) => (
+              <div key={i} style={{
+                borderRadius: 12,
+                border: '1px solid var(--border)',
+                background: openFaq === i ? 'var(--bg-card)' : 'transparent',
+                transition: 'all 200ms',
+                overflow: 'hidden',
+              }}>
+                <button
+                  onClick={() => setOpenFaq(openFaq === i ? null : i)}
+                  style={{
+                    width: '100%', textAlign: 'left',
+                    padding: '1rem 1.25rem',
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    gap: '1rem',
+                  }}
+                >
+                  <span style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--text-primary)', lineHeight: 1.4 }}>
+                    {f.q}
+                  </span>
+                  {openFaq === i
+                    ? <ChevronUp size={16} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+                    : <ChevronDown size={16} color="var(--text-muted)" style={{ flexShrink: 0 }} />
+                  }
+                </button>
+                {openFaq === i && (
+                  <div style={{
+                    padding: '0 1.25rem 1.25rem',
+                    animation: 'fadeIn 200ms ease',
+                  }}>
+                    <p style={{
+                      fontSize: '0.84rem', color: 'var(--text-secondary)',
+                      lineHeight: 1.65,
+                    }}>
+                      {f.a}
+                    </p>
+                  </div>
+                )}
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Bottom CTA ── */}
+      <section style={{
+        padding: '5rem 0',
+        background: 'var(--bg-secondary)',
+        borderTop: '1px solid var(--border-subtle)',
+        textAlign: 'center',
+      }}>
+        <div className="container-pad">
+          <h2 style={{
+            fontSize: 'clamp(1.5rem, 3vw, 2.25rem)', fontWeight: 800,
+            letterSpacing: '-0.02em', marginBottom: '0.75rem',
+          }}>
+            Ready to fix your <span className="gradient-text">Core Web Vitals</span>?
+          </h2>
+          <p style={{
+            color: 'var(--text-secondary)', fontSize: '0.95rem',
+            maxWidth: 440, margin: '0 auto 2rem', lineHeight: 1.7,
+          }}>
+            Start with a free audit. No credit card required.
+          </p>
+          <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Link href="/dashboard" className="btn-primary" style={{
+              textDecoration: 'none', padding: '0.75rem 2rem', fontSize: '0.9rem',
+              display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
+            }}>
+              Start Free Audit <ArrowRight size={16} />
+            </Link>
+            <Link href="mailto:hello@vitalfix.dev" className="btn-secondary" style={{
+              textDecoration: 'none', padding: '0.75rem 2rem', fontSize: '0.9rem',
+            }}>
+              Talk to Sales
+            </Link>
           </div>
         </div>
       </section>
