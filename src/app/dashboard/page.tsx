@@ -1,6 +1,6 @@
 'use client'
-import { useState, useEffect, useRef, useCallback } from 'react'
-import { Search, AlertTriangle, ArrowRight, Terminal, Globe, Wifi, Smartphone, Monitor, MapPin, GitCompare, Zap, BarChart3, Eye, ShieldCheck, Star, ExternalLink, RefreshCw, CheckCircle, XCircle, Clock, FileText } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { Search, AlertTriangle, ArrowRight, Terminal, Globe, Wifi, Smartphone, Monitor, MapPin, GitCompare, Zap, BarChart3, Eye, ShieldCheck, Star, ExternalLink, RefreshCw, CheckCircle, XCircle, Clock, FileText, WifiOff, Timer, Ban, AlertCircle } from 'lucide-react'
 import ScoreRing from '@/components/ScoreRing'
 import Link from 'next/link'
 import type { AuditResult } from './types'
@@ -17,23 +17,28 @@ import { useAuth } from '@/components/AuthProvider'
 import { useSyncLocalData } from '@/hooks/useSyncLocalData'
 import { useAnalytics } from '@/hooks/useAnalytics'
 import { getConnectionProfile } from '@/lib/audit-context'
+import {
+  executeAuditRequest, classifyError, getStageForElapsed, debounce,
+  type AuditStageInfo, type AuditError, type ErrorCategory,
+} from '@/lib/request-engine'
 
 const connections = ['4G (Fast)', '4G (Slow)', '3G', 'Cable']
 const locations = ['US East (Virginia)', 'EU West (London)', 'Asia (Singapore)', 'AU (Sydney)']
 
 const LEGACY_STORAGE_KEY = 'vitalfix-last-audit'
-const CLIENT_TIMEOUT = 160_000 // 160s default — overridden by connection profile below
-const MAX_RETRIES = 2 // auto-retry up to 2x on timeout or network error
 
-// Progress messages that cycle during long audits
-const PROGRESS_MESSAGES = [
-  'Connecting to PageSpeed Insights API…',
-  'Fetching page and running Lighthouse…',
-  'Analyzing Core Web Vitals…',
-  'Running custom site audit engine…',
-  'Checking broken links, images, security…',
-  'Almost done — compiling results…',
-]
+// Stage icon colors for progress indicator
+const STAGE_COLORS: Record<string, string> = {
+  connecting: '#60a5fa', fetching: '#818cf8', analyzing: '#a78bfa',
+  auditing: '#34d399', finalizing: '#fbbf24', retrying: '#f87171',
+  done: '#34d399', error: '#f87171',
+}
+
+// Error category icons
+const ERROR_ICONS: Record<ErrorCategory, any> = {
+  timeout: Timer, network: WifiOff, server: AlertCircle,
+  rate_limit: Ban, invalid_url: XCircle, unknown: AlertTriangle,
+}
 
 export default function DashboardPage() {
   const [url, setUrl] = useState('')
@@ -49,7 +54,9 @@ export default function DashboardPage() {
 
   // Progress tracking state
   const [elapsed, setElapsed] = useState(0)
-  const [progressMsg, setProgressMsg] = useState('')
+  const [currentStage, setCurrentStage] = useState<AuditStageInfo | null>(null)
+  const [retryInfo, setRetryInfo] = useState<{ attempt: number; max: number; waitMs: number } | null>(null)
+  const [auditError, setAuditError] = useState<AuditError | null>(null)
   const elapsedTimer = useRef<ReturnType<typeof setInterval> | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const { user } = useAuth()
@@ -89,11 +96,15 @@ export default function DashboardPage() {
     }
   }, [])
 
-  // Progress message cycling
+  // Stage-based progress: update from elapsed timer
   useEffect(() => {
     if (!loading) return
-    const msgIndex = Math.min(Math.floor(elapsed / 10), PROGRESS_MESSAGES.length - 1)
-    setProgressMsg(PROGRESS_MESSAGES[msgIndex])
+    const stageInfo = getStageForElapsed(elapsed)
+    // Don't overwrite retry stage from engine callback
+    setCurrentStage(prev => {
+      if (prev?.stage === 'retrying') return prev
+      return stageInfo
+    })
   }, [elapsed, loading])
 
   const startProgressTimer = useCallback(() => {
@@ -111,44 +122,7 @@ export default function DashboardPage() {
     }
   }, [])
 
-  const fetchAudit = async (targetUrl: string, signal: AbortSignal): Promise<AuditResult> => {
-    let res: Response
-    try {
-      res = await fetch(
-        `/api/audit/full?url=${encodeURIComponent(targetUrl)}&strategy=${device}&connection=${encodeURIComponent(connection)}&location=${encodeURIComponent(location)}`,
-        { signal }
-      )
-    } catch (fetchErr: any) {
-      // Browser throws TypeError: "Failed to fetch" when the network request
-      // itself fails (server unreachable, connection reset, CORS, SSL error, etc.)
-      if (fetchErr.name === 'AbortError') throw fetchErr
-      throw new Error(
-        'NETWORK_ERROR: Could not reach the audit server. ' +
-        'This usually means the server timed out or the connection was reset. ' +
-        'Please try again.'
-      )
-    }
-
-    let data: any
-    try {
-      data = await res.json()
-    } catch {
-      // Server returned non-JSON (e.g. HTML error page, empty body from crash)
-      throw new Error(
-        `Server returned an invalid response (HTTP ${res.status}). ` +
-        'The audit server may have timed out or crashed. Please try again.'
-      )
-    }
-
-    if (!res.ok) {
-      const msg = data.error || `Audit failed (HTTP ${res.status})`
-      const hint = data.hint ? ` ${data.hint}` : ''
-      throw new Error(msg + hint)
-    }
-    return data
-  }
-
-  const runAudit = async () => {
+  const runAudit = useCallback(async () => {
     if (!url.trim()) return
     let targetUrl = url.trim()
     if (!/^https?:\/\//.test(targetUrl)) targetUrl = 'https://' + targetUrl
@@ -158,77 +132,67 @@ export default function DashboardPage() {
 
     setLoading(true)
     setError(null)
+    setAuditError(null)
     setPrevResult(result)
     setResult(null)
     setActiveTab('overview')
+    setRetryInfo(null)
+    setCurrentStage({ stage: 'connecting', label: 'Connecting', detail: 'Starting audit…', progress: 5 })
     startProgressTimer()
 
-    let attempt = 0
-    let lastError: string = ''
+    const controller = new AbortController()
+    abortRef.current = controller
 
-    while (attempt <= MAX_RETRIES) {
+    try {
+      const data = await executeAuditRequest(
+        { url: targetUrl, device, connection, location },
+        {
+          onStageChange: (stage) => setCurrentStage(stage),
+          onRetry: (attempt, max, waitMs) => {
+            setRetryInfo({ attempt, max, waitMs })
+            setCurrentStage({
+              stage: 'retrying',
+              label: `Retry ${attempt}/${max}`,
+              detail: `Waiting ${(waitMs / 1000).toFixed(1)}s before retrying…`,
+              progress: 5,
+            })
+          },
+        },
+        controller.signal,
+      )
+
+      setResult(data)
+      setRunCount(c => c + 1)
+      setRetryInfo(null)
+
+      // Save to scan history + persist
       try {
-        // Create new AbortController with client-side timeout
-        const controller = new AbortController()
-        abortRef.current = controller
-        // Adjust client timeout based on connection profile
-        const connProfile = getConnectionProfile(connection)
-        const adjustedTimeout = Math.round(CLIENT_TIMEOUT * connProfile.timeoutMultiplier)
-        const timeoutId = setTimeout(() => controller.abort(), adjustedTimeout)
+        saveScan(data, user?.id)
+        localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify({ result: data, url: targetUrl }))
+      } catch { /* quota exceeded */ }
 
-        try {
-          const data = await fetchAudit(targetUrl, controller.signal)
-          clearTimeout(timeoutId)
-          setResult(data)
-          setRunCount(c => c + 1)
-
-          // Save to scan history + persist last full result for reload
-          try {
-            saveScan(data, user?.id)
-            localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify({ result: data, url: targetUrl }))
-          } catch { /* quota exceeded — ignore */ }
-          stopProgressTimer()
-          setLoading(false)
-          return // Success — exit
-        } catch (e: any) {
-          clearTimeout(timeoutId)
-
-          // ONLY retry on true client-side issues (browser abort, network drop).
-          // Server-returned errors (even with 'timeout' in the message) should NOT
-          // be retried — the server already tried its own fallbacks internally.
-          const isClientAbort = e.name === 'AbortError'
-          const isNetworkError = e.message?.includes('NETWORK_ERROR') || e.message?.includes('Failed to fetch')
-          const isRetryable = isClientAbort || isNetworkError
-
-          if (isClientAbort) {
-            lastError = 'The client connection timed out. The audit server may still be processing — please try again.'
-          } else if (isNetworkError) {
-            lastError = 'Could not connect to the audit server. Please check your connection and try again.'
-          } else {
-            // Server-returned error — show exactly what the server said
-            lastError = e.message || 'Something went wrong. Check the URL and try again.'
-          }
-
-          // Only retry on client-side transient errors, not server errors
-          if (isRetryable && attempt < MAX_RETRIES) {
-            attempt++
-            setProgressMsg(`Retry ${attempt}/${MAX_RETRIES} — ${isNetworkError ? 'reconnecting' : 'trying again'}…`)
-            continue
-          }
-
-          break
-        }
-      } catch (e: any) {
-        lastError = e.message || 'Something went wrong.'
-        break
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        // User cancelled — don't show error
+      } else {
+        const classified = err.category ? err as AuditError : classifyError(err)
+        setAuditError(classified)
+        setError(classified.message)
       }
+    } finally {
+      stopProgressTimer()
+      setLoading(false)
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url, device, connection, location, result, user?.id])
 
-    // Audit failed — show error (don't restore previous result, it causes confusion)
-    setError(lastError)
-    stopProgressTimer()
-    setLoading(false)
-  }
+  // Debounced handler for Enter key (prevents rapid double-submit)
+  const debouncedRunAudit = useMemo(() => debounce(() => runAudit(), 300), [runAudit])
+
+  // Cleanup debounce on unmount
+  useEffect(() => {
+    return () => debouncedRunAudit.cancel()
+  }, [debouncedRunAudit])
 
   const delta = (curr: number, prev: number) => {
     const d = curr - prev
@@ -273,7 +237,7 @@ export default function DashboardPage() {
                 placeholder="example.com"
                 value={url}
                 onChange={e => setUrl(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && runAudit()}
+                onKeyDown={e => { if (e.key === 'Enter') debouncedRunAudit() }}
                 disabled={loading}
                 style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', color: 'var(--text-primary)', fontSize: '0.82rem', fontFamily: "'JetBrains Mono', monospace", opacity: loading ? 0.5 : 1 }}
               />
@@ -316,33 +280,91 @@ export default function DashboardPage() {
         {/* ── Loading state with live progress ── */}
         {loading && (
           <div style={{ padding: '3rem 1.5rem' }}>
-            {/* Progress bar */}
-            <div style={{ height: 2, borderRadius: 1, background: 'var(--border)', marginBottom: '1rem', overflow: 'hidden' }}>
-              <div style={{ height: '100%', borderRadius: 1, background: 'linear-gradient(90deg, var(--accent), #60a5fa)', animation: 'progress-bar 120s ease-out forwards' }} />
+            {/* Multi-stage progress indicator */}
+            <div style={{ marginBottom: '1.5rem' }}>
+              {/* Stage dots */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                {['connecting', 'fetching', 'analyzing', 'auditing', 'finalizing'].map((stage, i) => {
+                  const stages = ['connecting', 'fetching', 'analyzing', 'auditing', 'finalizing']
+                  const currentIdx = stages.indexOf(currentStage?.stage || 'connecting')
+                  const isActive = i === currentIdx
+                  const isComplete = i < currentIdx
+                  const isRetrying = currentStage?.stage === 'retrying'
+                  return (
+                    <div key={stage} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flex: 1 }}>
+                      <div style={{
+                        width: isActive ? 10 : 8, height: isActive ? 10 : 8, borderRadius: '50%',
+                        background: isRetrying ? '#f87171' : isComplete ? '#34d399' : isActive ? (STAGE_COLORS[stage] || 'var(--accent)') : 'var(--border)',
+                        transition: 'all 300ms', flexShrink: 0,
+                        boxShadow: isActive ? `0 0 8px ${STAGE_COLORS[stage] || 'var(--accent)'}50` : 'none',
+                        animation: isActive ? 'pulse-glow 2s ease infinite' : 'none',
+                      }} />
+                      {i < 4 && (
+                        <div style={{
+                          flex: 1, height: 2, borderRadius: 1,
+                          background: isComplete ? '#34d399' : 'var(--border)',
+                          transition: 'background 300ms',
+                        }} />
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Progress bar */}
+              <div style={{ height: 3, borderRadius: 2, background: 'var(--border)', overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%', borderRadius: 2,
+                  background: currentStage?.stage === 'retrying'
+                    ? 'linear-gradient(90deg, #f87171, #fbbf24)'
+                    : 'linear-gradient(90deg, var(--accent), #60a5fa, #34d399)',
+                  width: `${currentStage?.progress || 5}%`,
+                  transition: 'width 800ms cubic-bezier(0.16, 1, 0.3, 1)',
+                }} />
+              </div>
             </div>
 
-            {/* Elapsed timer + progress message */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.75rem' }}>
-              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                <RefreshCw size={12} style={{ animation: 'spin 1.5s linear infinite' }} />
-                {progressMsg}
-              </span>
+            {/* Stage label + elapsed */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <RefreshCw size={13} style={{ animation: 'spin 1.5s linear infinite', color: STAGE_COLORS[currentStage?.stage || 'connecting'] }} />
+                <div>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                    {currentStage?.label || 'Starting'}
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    {currentStage?.detail || 'Initializing audit…'}
+                  </div>
+                </div>
+              </div>
               <span style={{
                 fontFamily: "'JetBrains Mono', monospace",
-                fontSize: '0.82rem',
-                fontWeight: 700,
+                fontSize: '0.82rem', fontWeight: 700,
                 color: elapsed > 60 ? '#fbbf24' : elapsed > 30 ? '#60a5fa' : 'var(--text-muted)',
-                padding: '0.2rem 0.6rem',
-                borderRadius: 6,
-                background: 'var(--bg)',
-                border: '1px solid var(--border)',
+                padding: '0.2rem 0.6rem', borderRadius: 6,
+                background: 'var(--bg)', border: '1px solid var(--border)',
               }}>
                 {formatElapsed(elapsed)}
               </span>
             </div>
 
+            {/* Retry banner */}
+            {retryInfo && (
+              <div style={{
+                padding: '0.75rem 1rem', borderRadius: 10, marginBottom: '1rem',
+                background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.2)',
+                display: 'flex', alignItems: 'center', gap: '0.6rem',
+                animation: 'fadeIn 300ms ease-out',
+              }}>
+                <RefreshCw size={14} color="#f87171" />
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                  Retry {retryInfo.attempt}/{retryInfo.max} — waiting {(retryInfo.waitMs / 1000).toFixed(1)}s before retrying with exponential backoff…
+                </span>
+              </div>
+            )}
+
             {/* Info banner for long audits */}
-            {elapsed > 20 && (
+            {elapsed > 20 && !retryInfo && (
               <div style={{
                 padding: '0.85rem 1.1rem', borderRadius: 10, marginBottom: '1.5rem',
                 background: 'rgba(96,165,250,0.06)', border: '1px solid rgba(96,165,250,0.2)',
@@ -374,45 +396,65 @@ export default function DashboardPage() {
         )}
 
         {/* ── Error state ── */}
-        {error && !loading && (
-          <div style={{ padding: '1.5rem', borderRadius: 12, background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.25)', marginBottom: '2rem' }}>
-            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
-              <XCircle size={18} color="#f87171" style={{ flexShrink: 0, marginTop: 2 }} />
-              <div style={{ flex: 1 }}>
-                <p style={{ fontWeight: 700, color: '#f87171', marginBottom: '0.25rem' }}>Audit Failed</p>
-                <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>{error}</p>
-                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>
-                  {error.includes('connect') || error.includes('NETWORK_ERROR') || error.includes('Failed to fetch')
-                    ? 'The audit server could not be reached. Check your connection and retry.'
-                    : error.includes('timed out') || error.includes('timeout') || error.includes('PageSpeed')
-                    ? 'Google\'s PageSpeed API is congested or the site is too complex. Try switching between mobile ↔ desktop, or try a different URL.'
-                    : error.includes('Rate limit')
-                    ? 'Too many requests — wait a minute and try again.'
-                    : 'Make sure the URL is publicly accessible and starts with http:// or https://'}
-                </p>
+        {(error || auditError) && !loading && (() => {
+          const err = auditError || classifyError(new Error(error || ''))
+          const IconComponent = ERROR_ICONS[err.category] || AlertTriangle
+          const categoryColors: Record<ErrorCategory, string> = {
+            timeout: '#fbbf24', network: '#f87171', server: '#60a5fa',
+            rate_limit: '#818cf8', invalid_url: '#f87171', unknown: '#f87171',
+          }
+          const color = categoryColors[err.category] || '#f87171'
+
+          return (
+            <div style={{ padding: '1.5rem', borderRadius: 12, background: `${color}08`, border: `1px solid ${color}30`, marginBottom: '2rem' }}>
+              <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+                <div style={{
+                  width: 36, height: 36, borderRadius: 10,
+                  background: `${color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}>
+                  <IconComponent size={18} color={color} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                    <p style={{ fontWeight: 700, color, fontSize: '0.9rem' }}>Audit Failed</p>
+                    <span style={{
+                      fontSize: '0.65rem', fontWeight: 600, textTransform: 'uppercase',
+                      padding: '0.1rem 0.4rem', borderRadius: 4,
+                      background: `${color}15`, color, letterSpacing: '0.04em',
+                    }}>
+                      {err.category.replace('_', ' ')}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>{err.message}</p>
+                  <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '0.4rem', lineHeight: 1.5 }}>
+                    {err.hint}
+                  </p>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem', flexWrap: 'wrap' }}>
+                {err.retryable && (
+                  <button onClick={runAudit} className="btn-primary" style={{ fontSize: '0.8rem', padding: '0.45rem 1rem' }}>
+                    <RefreshCw size={13} /> Retry
+                  </button>
+                )}
+                {device === 'mobile' ? (
+                  <button onClick={() => { setDevice('desktop'); setTimeout(runAudit, 100) }} className="btn-secondary" style={{ fontSize: '0.8rem', padding: '0.45rem 1rem' }}>
+                    <Monitor size={13} /> Try Desktop
+                  </button>
+                ) : (
+                  <button onClick={() => { setDevice('mobile'); setTimeout(runAudit, 100) }} className="btn-secondary" style={{ fontSize: '0.8rem', padding: '0.45rem 1rem' }}>
+                    <Smartphone size={13} /> Try Mobile
+                  </button>
+                )}
+                {prevResult && (
+                  <button onClick={() => { setError(null); setAuditError(null); setResult(prevResult) }} className="btn-secondary" style={{ fontSize: '0.8rem', padding: '0.45rem 1rem' }}>
+                    View Previous Result
+                  </button>
+                )}
               </div>
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-              <button onClick={runAudit} className="btn-primary" style={{ fontSize: '0.8rem', padding: '0.45rem 1rem' }}>
-                <RefreshCw size={13} /> Retry
-              </button>
-              {device === 'mobile' ? (
-                <button onClick={() => { setDevice('desktop'); setTimeout(runAudit, 100) }} className="btn-secondary" style={{ fontSize: '0.8rem', padding: '0.45rem 1rem' }}>
-                  <Monitor size={13} /> Try Desktop
-                </button>
-              ) : (
-                <button onClick={() => { setDevice('mobile'); setTimeout(runAudit, 100) }} className="btn-secondary" style={{ fontSize: '0.8rem', padding: '0.45rem 1rem' }}>
-                  <Smartphone size={13} /> Try Mobile
-                </button>
-              )}
-              {prevResult && (
-                <button onClick={() => { setError(null); setResult(prevResult) }} className="btn-secondary" style={{ fontSize: '0.8rem', padding: '0.45rem 1rem' }}>
-                  View Previous Result
-                </button>
-              )}
-            </div>
-          </div>
-        )}
+          )
+        })()}
 
         {/* ── Results ── */}
         {result && !loading && (
