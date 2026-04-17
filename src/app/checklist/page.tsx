@@ -162,7 +162,7 @@ export default function ChecklistPage() {
             </div>
 
             {/* Items */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+            <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
               {filtered.map(item => (
                 <div
                   key={item.id}

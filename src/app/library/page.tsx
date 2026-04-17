@@ -916,7 +916,7 @@ export default function LibraryPage() {
 
       {/* Snippets */}
       <div className="container-pad" style={{ padding: '2.5rem 1.5rem' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem' }}>
+        <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: '2.5rem' }}>
           {filtered.map(s => (
             <div key={s.id} id={s.id} className="glass-card" style={{ padding: '2rem' }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>

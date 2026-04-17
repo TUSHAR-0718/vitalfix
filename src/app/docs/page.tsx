@@ -229,7 +229,7 @@ export default function DocsPage() {
         </div>
 
         {/* Guides */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           {guides.map(guide => {
             const isOpen = expanded === guide.id
             return (
@@ -350,7 +350,7 @@ export default function DocsPage() {
           <h2 style={{ fontSize: '1.4rem', fontWeight: 800, marginBottom: '1.5rem', letterSpacing: '-0.02em' }}>
             Measurement Tools
           </h2>
-          <div style={{
+          <div className="stagger" style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
             gap: '1rem',
