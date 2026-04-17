@@ -1,8 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, Star, Zap, Shield, Building2, ArrowRight, HelpCircle, ChevronDown, ChevronUp, Sparkles, BarChart3, Download, Clock, Users, Globe, Lock, Headphones, Code2 } from 'lucide-react'
+import { Check, Star, Zap, Shield, Building2, ArrowRight, HelpCircle, ChevronDown, ChevronUp, Sparkles, BarChart3, Download, Clock, Users, Globe, Lock, Headphones, Code2, Crown, Loader2 } from 'lucide-react'
 import Link from 'next/link'
+import { useAuth } from '@/components/AuthProvider'
+import AuthModal from '@/components/AuthModal'
 
 // ── Plan Data ──
 const plans = [
@@ -75,6 +77,53 @@ const plans = [
   },
 ]
 
+export default function PricingPage() {
+  const [billing, setBilling] = useState<'monthly' | 'yearly'>('monthly')
+  const [openFaq, setOpenFaq] = useState<number | null>(null)
+  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null)
+  const [authOpen, setAuthOpen] = useState(false)
+  const { user, plan: currentPlan } = useAuth()
+
+  const handleCheckout = async (planId: string, billingCycle: string) => {
+    if (planId === 'free') {
+      if (user) {
+        window.location.href = '/dashboard'
+      } else {
+        setAuthOpen(true)
+      }
+      return
+    }
+
+    if (planId === 'enterprise') {
+      window.location.href = 'mailto:hello@vitalfix.dev'
+      return
+    }
+
+    // Pro plan — redirect to Stripe Checkout
+    if (!user) {
+      setAuthOpen(true)
+      return
+    }
+
+    setCheckoutLoading(planId)
+    try {
+      const res = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ billingCycle }),
+      })
+      const data = await res.json()
+      if (data.url) {
+        window.location.href = data.url
+      } else {
+        alert(data.error || 'Failed to start checkout')
+      }
+    } catch {
+      alert('Something went wrong. Please try again.')
+    } finally {
+      setCheckoutLoading(null)
+    }
+  }
 const faqs = [
   {
     q: 'Is the Free plan really free forever?',
@@ -117,10 +166,7 @@ const comparisonFeatures = [
   { feature: 'Custom SLA', free: '—', pro: '—', enterprise: '✓' },
 ]
 
-export default function PricingPage() {
-  const [isYearly, setIsYearly] = useState(false)
-  const [openFaq, setOpenFaq] = useState<number | null>(null)
-
+  const isYearly = billing === 'yearly'
   const yearlySavings = Math.round((1 - 89 / (9 * 12)) * 100) // ~18% ≈ 20%
 
   return (
@@ -167,7 +213,7 @@ export default function PricingPage() {
             background: 'var(--bg)', border: '1px solid var(--border)',
           }}>
             <button
-              onClick={() => setIsYearly(false)}
+              onClick={() => setBilling('monthly')}
               style={{
                 padding: '0.5rem 1.25rem', borderRadius: 9, border: 'none',
                 fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer',
@@ -180,7 +226,7 @@ export default function PricingPage() {
               Monthly
             </button>
             <button
-              onClick={() => setIsYearly(true)}
+              onClick={() => setBilling('yearly')}
               style={{
                 padding: '0.5rem 1.25rem', borderRadius: 9, border: 'none',
                 fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer',
@@ -319,20 +365,36 @@ export default function PricingPage() {
                   </div>
 
                   {/* CTA */}
-                  <Link href={p.href} style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
-                    textDecoration: 'none',
-                    padding: '0.8rem 1.5rem', borderRadius: 11, fontWeight: 700, fontSize: '0.9rem',
-                    background: p.highlight ? 'linear-gradient(135deg, #7c6bff, #38bdf8)' : 'var(--bg)',
-                    color: p.highlight ? '#fff' : 'var(--text-primary)',
-                    border: p.highlight ? 'none' : '1px solid var(--border)',
-                    marginBottom: '1.75rem',
-                    transition: 'all 200ms cubic-bezier(0.16, 1, 0.3, 1)',
-                    boxShadow: p.highlight ? '0 4px 20px rgba(124,107,255,0.25)' : 'none',
-                  }}>
-                    {p.cta}
-                    <ArrowRight size={15} />
-                  </Link>
+                  <button
+                    onClick={() => handleCheckout(p.id, billing)}
+                    disabled={checkoutLoading === p.id || !!(user && currentPlan === p.id)}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem',
+                      width: '100%', cursor: (user && currentPlan === p.id) ? 'default' : 'pointer',
+                      padding: '0.8rem 1.5rem', borderRadius: 11, fontWeight: 700, fontSize: '0.9rem',
+                      background: (user && currentPlan === p.id)
+                        ? 'var(--bg-card)'
+                        : p.highlight ? 'linear-gradient(135deg, #7c6bff, #38bdf8)' : 'var(--bg)',
+                      color: (user && currentPlan === p.id)
+                        ? 'var(--text-muted)'
+                        : p.highlight ? '#fff' : 'var(--text-primary)',
+                      border: (user && currentPlan === p.id)
+                        ? '1px solid var(--border)'
+                        : p.highlight ? 'none' : '1px solid var(--border)',
+                      marginBottom: '1.75rem',
+                      transition: 'all 200ms cubic-bezier(0.16, 1, 0.3, 1)',
+                      boxShadow: p.highlight && !(user && currentPlan === p.id) ? '0 4px 20px rgba(124,107,255,0.25)' : 'none',
+                      opacity: checkoutLoading === p.id ? 0.7 : 1,
+                    }}
+                  >
+                    {checkoutLoading === p.id ? (
+                      <><Loader2 size={15} style={{ animation: 'spin 0.8s linear infinite' }} /> Redirecting…</>
+                    ) : (user && currentPlan === p.id) ? (
+                      <><Crown size={15} /> Current Plan</>
+                    ) : (
+                      <>{p.cta} <ArrowRight size={15} /></>
+                    )}
+                  </button>
 
                   {/* Features */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>

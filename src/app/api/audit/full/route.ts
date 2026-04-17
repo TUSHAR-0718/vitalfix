@@ -7,6 +7,8 @@ import { runCustomAudit, calculateHealthScore } from '@/lib/audit-engine'
 import { cacheKey, getCached, setCache } from '@/lib/audit-engine/cache'
 import { fetchPSI, getPoolStatus } from '@/lib/psi-pool'
 import { trackAuditEvent, updateDailyCounters } from '@/lib/analytics'
+import { checkQuota, incrementAuditCount } from '@/lib/plans'
+import { createServerClient } from '@supabase/ssr'
 import {
   getConnectionProfile, getLocationProfile,
   getRegionalInsights, rateMetric,
@@ -318,7 +320,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'URLs pointing to internal or private networks are not allowed.' }, { status: 400 })
   }
 
-  // Rate limiting
+  // Rate limiting (IP-based)
   if (!checkRateLimit(ip)) {
     return NextResponse.json(
       { error: 'Rate limit exceeded. Try again in 60 seconds.' },
@@ -331,6 +333,45 @@ export async function GET(req: NextRequest) {
         },
       }
     )
+  }
+
+  // ── Plan-based quota enforcement ──
+  // Extract user from Supabase session cookie (if authenticated)
+  let userId: string | null = null
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+  if (supabaseUrl && supabaseAnonKey) {
+    try {
+      const sb = createServerClient(supabaseUrl, supabaseAnonKey, {
+        cookies: {
+          getAll() { return req.cookies.getAll() },
+          setAll() { /* read-only in API route */ },
+        },
+      })
+      const { data: { user } } = await sb.auth.getUser()
+      userId = user?.id || null
+    } catch { /* auth check failed — treat as anonymous */ }
+  }
+
+  // Check quota for authenticated users
+  if (userId) {
+    try {
+      const quota = await checkQuota(userId)
+      if (!quota.allowed) {
+        return NextResponse.json(
+          {
+            error: `Daily audit limit reached (${quota.used}/${quota.limit}). Upgrade to Pro for unlimited audits.`,
+            hint: 'Visit /pricing to upgrade your plan.',
+            quotaExceeded: true,
+            used: quota.used,
+            limit: quota.limit,
+            plan: quota.plan,
+          },
+          { status: 429 }
+        )
+      }
+    } catch { /* quota check failed — allow through */ }
   }
 
   // Check cache
@@ -494,6 +535,11 @@ export async function GET(req: NextRequest) {
       partial: response.partial ? 1 : 0,
       avg_latency_ms: latencyMs,
     }).catch(() => {})
+
+    // ── Increment daily audit counter for plan enforcement ──
+    if (userId) {
+      incrementAuditCount(userId).catch(() => {})
+    }
 
     return NextResponse.json(response)
   } catch (err: any) {

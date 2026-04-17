@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Search, AlertTriangle, ArrowRight, Terminal, Globe, Wifi, Smartphone, Monitor, MapPin, GitCompare, Zap, BarChart3, Eye, ShieldCheck, Star, ExternalLink, RefreshCw, CheckCircle, XCircle, Clock, FileText, WifiOff, Timer, Ban, AlertCircle } from 'lucide-react'
+import { Search, AlertTriangle, ArrowRight, Terminal, Globe, Wifi, Smartphone, Monitor, MapPin, GitCompare, Zap, BarChart3, Eye, ShieldCheck, Shield, Star, ExternalLink, RefreshCw, CheckCircle, XCircle, Clock, FileText, WifiOff, Timer, Ban, AlertCircle } from 'lucide-react'
 import ScoreRing from '@/components/ScoreRing'
 import Link from 'next/link'
 import type { AuditResult } from './types'
@@ -59,7 +59,7 @@ export default function DashboardPage() {
   const [auditError, setAuditError] = useState<AuditError | null>(null)
   const elapsedTimer = useRef<ReturnType<typeof setInterval> | null>(null)
   const abortRef = useRef<AbortController | null>(null)
-  const { user } = useAuth()
+  const { user, plan, quotaUsed, quotaLimit, quotaRemaining } = useAuth()
   useSyncLocalData()
   const { trackPageView, trackFeature } = useAnalytics()
 
@@ -211,9 +211,50 @@ export default function DashboardPage() {
       {/* ── Header ── */}
       <section style={{ padding: '4rem 0 2.5rem', borderBottom: '1px solid var(--border)' }}>
         <div className="container-pad">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
             <span className="badge badge-accent">Performance Dashboard</span>
             <span className="badge badge-green">⚡ Real Lighthouse</span>
+
+            {/* Plan badge */}
+            {user && (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                padding: '0.2rem 0.65rem', borderRadius: 100, fontSize: '0.68rem', fontWeight: 700,
+                background: plan === 'pro' ? 'rgba(129,140,248,0.12)' : plan === 'enterprise' ? 'rgba(96,165,250,0.12)' : 'rgba(52,211,153,0.12)',
+                color: plan === 'pro' ? '#818cf8' : plan === 'enterprise' ? '#60a5fa' : '#34d399',
+                border: `1px solid ${plan === 'pro' ? 'rgba(129,140,248,0.25)' : plan === 'enterprise' ? 'rgba(96,165,250,0.25)' : 'rgba(52,211,153,0.25)'}`,
+                textTransform: 'uppercase', letterSpacing: '0.04em',
+              }}>
+                {plan === 'pro' && <Star size={10} fill="#818cf8" />}
+                {plan === 'enterprise' && <Shield size={10} />}
+                {plan} plan
+              </span>
+            )}
+
+            {/* Quota counter (free users only) */}
+            {user && quotaLimit > 0 && (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                padding: '0.2rem 0.65rem', borderRadius: 100, fontSize: '0.68rem', fontWeight: 600,
+                background: quotaRemaining === 0 ? 'rgba(248,113,113,0.1)' : quotaRemaining <= 1 ? 'rgba(251,191,36,0.1)' : 'rgba(255,255,255,0.04)',
+                color: quotaRemaining === 0 ? '#f87171' : quotaRemaining <= 1 ? '#fbbf24' : 'var(--text-muted)',
+                border: `1px solid ${quotaRemaining === 0 ? 'rgba(248,113,113,0.25)' : quotaRemaining <= 1 ? 'rgba(251,191,36,0.25)' : 'var(--border)'}`,
+              }}>
+                {quotaUsed}/{quotaLimit} audits used today
+              </span>
+            )}
+
+            {/* Unlimited badge (pro/enterprise) */}
+            {user && quotaLimit === -1 && (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                padding: '0.2rem 0.65rem', borderRadius: 100, fontSize: '0.68rem', fontWeight: 600,
+                background: 'rgba(129,140,248,0.08)', color: '#818cf8',
+                border: '1px solid rgba(129,140,248,0.2)',
+              }}>
+                ∞ Unlimited audits
+              </span>
+            )}
           </div>
           <h1 className="text-h1" style={{ marginBottom: '0.5rem' }}>
             Real-Time <span className="gradient-text">Lighthouse Audit</span>
@@ -221,6 +262,28 @@ export default function DashboardPage() {
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', maxWidth: 540, lineHeight: 1.6 }}>
             Enter any URL to run a live audit — real scores, real CWV data, real opportunities.
           </p>
+
+          {/* Upgrade prompt when quota is nearly/fully exhausted */}
+          {user && quotaLimit > 0 && quotaRemaining <= 1 && (
+            <div style={{
+              marginTop: '0.75rem', padding: '0.6rem 1rem', borderRadius: 10,
+              background: quotaRemaining === 0 ? 'rgba(248,113,113,0.06)' : 'rgba(251,191,36,0.06)',
+              border: `1px solid ${quotaRemaining === 0 ? 'rgba(248,113,113,0.2)' : 'rgba(251,191,36,0.2)'}`,
+              display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap',
+            }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                {quotaRemaining === 0
+                  ? '🚫 Daily audit limit reached.'
+                  : '⚠️ 1 audit remaining today.'}
+              </span>
+              <Link href="/pricing" style={{
+                fontSize: '0.78rem', fontWeight: 700, color: '#818cf8',
+                textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+              }}>
+                Upgrade to Pro for unlimited <ArrowRight size={12} />
+              </Link>
+            </div>
+          )}
         </div>
       </section>
 
