@@ -5,6 +5,7 @@ import { Check, Star, Zap, Shield, Building2, ArrowRight, HelpCircle, ChevronDow
 import Link from 'next/link'
 import { useAuth } from '@/components/AuthProvider'
 import AuthModal from '@/components/AuthModal'
+import { FAQJsonLd } from '@/components/JsonLd'
 
 // ── Plan Data ──
 const plans = [
@@ -669,6 +670,12 @@ const comparisonFeatures = [
           </div>
         </div>
       </section>
+
+      {/* ── FAQ Structured Data ── */}
+      <FAQJsonLd faqs={faqs} />
+
+      {/* ── Auth Modal ── */}
+      {authOpen && <AuthModal onClose={() => setAuthOpen(false)} />}
     </div>
   )
 }

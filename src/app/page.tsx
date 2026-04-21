@@ -1,6 +1,9 @@
 import Link from 'next/link'
 import { ArrowRight, Zap, BarChart3, Code2, CheckSquare, Gauge, TrendingUp, Search, Star, Activity } from 'lucide-react'
 import BenchmarkSection from '@/components/BenchmarkSection'
+import { WebApplicationJsonLd, OrganizationJsonLd } from '@/components/JsonLd'
+import ExitIntentWrapper from '@/components/ExitIntentWrapper'
+import SocialProofWrapper from '@/components/SocialProofWrapper'
 
 const stats = [
   { value: '53%', label: 'of users leave if load > 3s', color: 'var(--red)' },
@@ -132,14 +135,17 @@ export default function HomePage() {
           </div>
 
           <div className="animate-fade-up" style={{ animationDelay: '0.35s', opacity: 0 }}>
-            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '3rem' }}>
+            <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
               <Link href="/library" className="btn-primary" style={{ textDecoration: 'none', padding: '0.7rem 1.75rem' }}>
                 Browse Code Library <ArrowRight size={16} />
               </Link>
               <Link href="/dashboard" className="btn-secondary" style={{ textDecoration: 'none', padding: '0.7rem 1.75rem' }}>
-                Run Free Audit
+                Audit Your Site Free — 30 Seconds
               </Link>
             </div>
+            <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', opacity: 0.7, marginBottom: '3rem' }}>
+              No credit card · No sign-up required
+            </p>
           </div>
 
           {/* Metric pills */}
@@ -366,6 +372,30 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      {/* ── Powered By ── */}
+      <section style={{ padding: '2rem 0', borderTop: '1px solid var(--border)' }}>
+        <div className="container-pad" style={{ textAlign: 'center' }}>
+          <p style={{ fontSize: '0.68rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: '0.75rem' }}>
+            Powered by
+          </p>
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '2rem', flexWrap: 'wrap', alignItems: 'center', opacity: 0.5 }}>
+            {['Google Lighthouse', 'PageSpeed Insights', 'Chrome UX Report', 'Next.js'].map(name => (
+              <span key={name} style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+                {name}
+              </span>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Growth Components ── */}
+      <ExitIntentWrapper />
+      <SocialProofWrapper />
+
+      {/* ── Structured Data ── */}
+      <WebApplicationJsonLd />
+      <OrganizationJsonLd />
     </>
   )
 }

@@ -5,8 +5,8 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: '*',
-        allow: '/',
-        disallow: ['/api/', '/dashboard'],
+        allow: ['/', '/guides/', '/report/', '/library', '/tools', '/checklist', '/pricing', '/docs'],
+        disallow: ['/api/'],
       },
     ],
     sitemap: 'https://vitalfix.dev/sitemap.xml',

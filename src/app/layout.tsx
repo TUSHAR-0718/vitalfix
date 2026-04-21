@@ -4,6 +4,7 @@ import { ThemeProvider } from '@/components/ThemeProvider'
 import { AuthProvider } from '@/components/AuthProvider'
 import Navbar from '@/components/Navbar'
 import Footer from '@/components/Footer'
+import { WebSiteJsonLd } from '@/components/JsonLd'
 
 export const metadata: Metadata = {
   title: 'VitalFix — Core Web Vitals for Developers',
@@ -32,6 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Navbar />
             <main>{children}</main>
             <Footer />
+            <WebSiteJsonLd />
           </ThemeProvider>
         </AuthProvider>
       </body>

@@ -12,6 +12,7 @@ const links = [
   { href: '/library', label: 'Code Library' },
   { href: '/checklist', label: 'Audit Checklist' },
   { href: '/tools', label: 'Tools' },
+  { href: '/guides', label: 'Guides' },
   { href: '/docs', label: 'Docs' },
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/pricing', label: 'Pricing' },

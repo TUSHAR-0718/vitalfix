@@ -37,6 +37,7 @@ export default function Footer() {
           <div>
             <p className="text-label" style={{ marginBottom: '0.6rem' }}>Learn</p>
             {[
+              { href: '/guides', label: 'Guides' },
               { href: '/docs', label: 'Documentation' },
               { href: 'https://web.dev/vitals/', label: 'web.dev/vitals ↗' },
               { href: 'https://pagespeed.web.dev/', label: 'PageSpeed Insights ↗' },

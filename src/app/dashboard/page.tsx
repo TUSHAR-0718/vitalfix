@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Search, AlertTriangle, ArrowRight, Terminal, Globe, Wifi, Smartphone, Monitor, MapPin, GitCompare, Zap, BarChart3, Eye, ShieldCheck, Shield, Star, ExternalLink, RefreshCw, CheckCircle, XCircle, Clock, FileText, WifiOff, Timer, Ban, AlertCircle } from 'lucide-react'
+import { Search, AlertTriangle, ArrowRight, Terminal, Globe, Wifi, Smartphone, Monitor, MapPin, GitCompare, Zap, BarChart3, Eye, ShieldCheck, Shield, Star, ExternalLink, RefreshCw, CheckCircle, XCircle, Clock, FileText, WifiOff, Timer, Ban, AlertCircle, Share2, Link2 } from 'lucide-react'
 import ScoreRing from '@/components/ScoreRing'
 import Link from 'next/link'
 import type { AuditResult } from './types'
@@ -17,6 +17,9 @@ import { useAuth } from '@/components/AuthProvider'
 import { useSyncLocalData } from '@/hooks/useSyncLocalData'
 import { useAnalytics } from '@/hooks/useAnalytics'
 import { getConnectionProfile } from '@/lib/audit-context'
+import LeadCaptureModal from '@/components/LeadCaptureModal'
+import AuthModal from '@/components/AuthModal'
+import AuditReminder from '@/components/AuditReminder'
 import {
   executeAuditRequest, classifyError, getStageForElapsed, debounce,
   type AuditStageInfo, type AuditError, type ErrorCategory,
@@ -59,6 +62,12 @@ export default function DashboardPage() {
   const [auditError, setAuditError] = useState<AuditError | null>(null)
   const elapsedTimer = useRef<ReturnType<typeof setInterval> | null>(null)
   const abortRef = useRef<AbortController | null>(null)
+
+  // Growth system state
+  const [showLeadCapture, setShowLeadCapture] = useState(false)
+  const [showAuthModal, setShowAuthModal] = useState(false)
+  const [shareLoading, setShareLoading] = useState(false)
+  const [shareSuccess, setShareSuccess] = useState(false)
   const { user, plan, quotaUsed, quotaLimit, quotaRemaining } = useAuth()
   useSyncLocalData()
   const { trackPageView, trackFeature } = useAnalytics()
@@ -164,6 +173,11 @@ export default function DashboardPage() {
       setResult(data)
       setRunCount(c => c + 1)
       setRetryInfo(null)
+
+      // Show lead capture modal for anonymous users (after short delay)
+      if (!user) {
+        setTimeout(() => setShowLeadCapture(true), 2000)
+      }
 
       // Save to scan history + persist
       try {
@@ -558,6 +572,44 @@ export default function DashboardPage() {
               </span>
               <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                 <button
+                  onClick={async () => {
+                    setShareLoading(true)
+                    setShareSuccess(false)
+                    try {
+                      const res = await fetch('/api/report/create', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          url: result.url,
+                          strategy: result.strategy,
+                          healthScore: result.healthScore,
+                          scores: result.scores,
+                          cwvSummary: result.cwv,
+                          topIssues: result.opportunities?.slice(0, 5),
+                          customAudit: result.customAudit,
+                        }),
+                      })
+                      const data = await res.json()
+                      if (data.reportUrl) {
+                        await navigator.clipboard.writeText(data.reportUrl)
+                        setShareSuccess(true)
+                        setTimeout(() => setShareSuccess(false), 3000)
+                      }
+                    } catch { /* ignore */ }
+                    setShareLoading(false)
+                  }}
+                  disabled={shareLoading}
+                  className="btn-ghost"
+                  id="share-report-btn"
+                  style={{
+                    fontSize: '0.78rem', fontWeight: 600, padding: '0.25rem 0.5rem',
+                    color: shareSuccess ? '#34d399' : 'var(--accent)',
+                    display: 'flex', alignItems: 'center', gap: '0.3rem',
+                  }}
+                >
+                  {shareSuccess ? <><Link2 size={12} /> Copied!</> : shareLoading ? <><RefreshCw size={12} style={{ animation: 'spin 0.8s linear infinite' }} /> Sharing…</> : <><Share2 size={12} /> Share</>}
+                </button>
+                <button
                   onClick={() => window.print()}
                   className="btn-ghost"
                   id="export-pdf-btn"
@@ -727,6 +779,26 @@ export default function DashboardPage() {
               <Link href="/checklist" className="btn-secondary" style={{ textDecoration: 'none' }}>Run Full Checklist</Link>
             </div>
           </div>
+        )}
+
+        {/* ── Lead Capture Modal (anonymous users after audit) ── */}
+        {result && !loading && !user && showLeadCapture && (
+          <LeadCaptureModal
+            url={result.url}
+            healthScore={result.healthScore}
+            onClose={() => setShowLeadCapture(false)}
+            onSignUp={() => setShowAuthModal(true)}
+          />
+        )}
+
+        {/* ── Auth Modal (triggered from lead capture) ── */}
+        {showAuthModal && (
+          <AuthModal onClose={() => setShowAuthModal(false)} />
+        )}
+
+        {/* ── Audit Reminder (returning users) ── */}
+        {!result && !loading && !error && user && (
+          <AuditReminder onRunAudit={(reminderUrl) => { setUrl(reminderUrl); setTimeout(runAudit, 100) }} />
         )}
 
         {/* ── How to run a real audit (shown when no result yet) ── */}
