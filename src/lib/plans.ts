@@ -1,73 +1,122 @@
 // ── Plan Definitions & Quota System ──
 // Centralised plan config, quota checking, and Stripe price mapping.
+// 4-Tier Structure: Free → Starter → Pro → Enterprise
 
 import { supabase } from '@/lib/supabase'
 
 // ── Plan Tiers ──
 
-export type PlanTier = 'free' | 'pro' | 'enterprise'
+export type PlanTier = 'free' | 'starter' | 'pro' | 'enterprise'
 
 export interface PlanConfig {
   name: string
   tier: PlanTier
   dailyAuditLimit: number       // -1 = unlimited
   historyRetentionDays: number  // -1 = unlimited
+  batchUrlLimit: number         // max URLs per batch audit
+  shareableReportsLimit: number // -1 = unlimited, else per month
+  pdfExportLimit: number        // -1 = unlimited, else per month
   features: string[]
-  monthlyPrice: number          // in dollars, 0 = free
-  yearlyPrice: number
+  monthlyPrice: number          // in dollars, 0 = free, -1 = custom
+  yearlyPrice: number           // in dollars, 0 = free, -1 = custom
+  color: string                 // brand color for badges/UI
 }
 
 export const PLANS: Record<PlanTier, PlanConfig> = {
   free: {
     name: 'Free',
     tier: 'free',
-    dailyAuditLimit: 3,
+    dailyAuditLimit: 5,
     historyRetentionDays: 7,
+    batchUrlLimit: 1,
+    shareableReportsLimit: 3,
+    pdfExportLimit: 0,
     features: [
-      'Basic Lighthouse audit',
-      'Core Web Vitals report',
-      '3 audits per day',
-      '7-day history',
+      '5 audits per day',
+      'Full Lighthouse audit',
+      '8-module site audit',
+      'Core Web Vitals + CrUX',
+      'Code snippet library',
+      '7-day scan history (15 scans)',
+      '3 shareable reports/month',
     ],
     monthlyPrice: 0,
     yearlyPrice: 0,
+    color: '#34d399',
+  },
+  starter: {
+    name: 'Starter',
+    tier: 'starter',
+    dailyAuditLimit: 25,
+    historyRetentionDays: 90,
+    batchUrlLimit: 3,
+    shareableReportsLimit: -1,
+    pdfExportLimit: 10,
+    features: [
+      '25 audits per day',
+      '90-day scan history',
+      'Trend tracking with sparklines',
+      'PDF report export (10/mo)',
+      'CSV/JSON data export',
+      'Batch audit (3 URLs)',
+      'Full analytics dashboard',
+      'Email support (48hr)',
+    ],
+    monthlyPrice: 5,
+    yearlyPrice: 48,
+    color: '#38bdf8',
   },
   pro: {
     name: 'Pro',
     tier: 'pro',
     dailyAuditLimit: -1, // unlimited
     historyRetentionDays: -1,
+    batchUrlLimit: 10,
+    shareableReportsLimit: -1,
+    pdfExportLimit: -1,
     features: [
       'Unlimited audits',
-      'Full site audit engine',
-      'Unlimited history',
-      'PDF report export',
-      'Priority support',
+      'Unlimited scan history',
+      'Scheduled monitoring (10 URLs)',
+      'Performance budgets & alerts',
+      'Competitor benchmarking',
+      'REST API (1K req/day)',
+      'CI/CD CLI + GitHub Action',
+      'Priority processing',
     ],
-    monthlyPrice: 9,
-    yearlyPrice: 89,
+    monthlyPrice: 19,
+    yearlyPrice: 179,
+    color: '#818cf8',
   },
   enterprise: {
     name: 'Enterprise',
     tier: 'enterprise',
     dailyAuditLimit: -1,
-    historyRetentionDays: -1,
+    historyRetentionDays: 730, // 2 years
+    batchUrlLimit: 50,
+    shareableReportsLimit: -1,
+    pdfExportLimit: -1,
     features: [
       'Everything in Pro',
-      'Team collaboration',
-      'Scheduled monitoring',
-      'API access',
+      'Unlimited site monitoring',
+      'Team seats (5 included)',
+      'White-label PDF reports',
+      'REST API (10K req/day)',
       'Custom integrations',
-      'Dedicated support',
+      'SSO + invoice billing',
+      'Dedicated account manager',
     ],
-    monthlyPrice: 0, // custom pricing
-    yearlyPrice: 0,
+    monthlyPrice: -1, // custom pricing
+    yearlyPrice: -1,
+    color: '#60a5fa',
   },
 }
 
 // ── Stripe Price IDs (set in env) ──
 
 export const STRIPE_PRICES = {
+  starter_monthly: process.env.STRIPE_STARTER_MONTHLY_PRICE_ID || '',
+  starter_yearly: process.env.STRIPE_STARTER_YEARLY_PRICE_ID || '',
   pro_monthly: process.env.STRIPE_PRO_MONTHLY_PRICE_ID || '',
   pro_yearly: process.env.STRIPE_PRO_YEARLY_PRICE_ID || '',
 }
@@ -123,7 +172,7 @@ export async function checkQuota(userId: string): Promise<QuotaResult> {
 
   // No profile = treat as free
   const plan = profile?.plan || 'free'
-  const config = PLANS[plan]
+  const config = PLANS[plan] || PLANS.free
   const limit = config.dailyAuditLimit
 
   // Unlimited plans
@@ -198,4 +247,22 @@ export async function upsertProfile(
   if (error) {
     console.error('[Plans] Failed to upsert profile:', error.message)
   }
+}
+
+// ── Helpers ──
+
+/** Get the next tier upgrade from current plan */
+export function getUpgradeTier(current: PlanTier): PlanTier | null {
+  const order: PlanTier[] = ['free', 'starter', 'pro', 'enterprise']
+  const idx = order.indexOf(current)
+  return idx < order.length - 1 ? order[idx + 1] : null
+}
+
+/** Get human-readable upgrade message */
+export function getUpgradeMessage(plan: PlanTier): string {
+  const next = getUpgradeTier(plan)
+  if (!next) return ''
+  const nextConfig = PLANS[next]
+  const price = nextConfig.monthlyPrice === -1 ? 'Custom pricing' : `$${nextConfig.monthlyPrice}/mo`
+  return `Upgrade to ${nextConfig.name} (${price}) for ${next === 'starter' ? '25 audits/day + PDF export' : next === 'pro' ? 'unlimited audits + monitoring' : 'team features + white-label'}`
 }

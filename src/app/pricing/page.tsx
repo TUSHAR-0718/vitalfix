@@ -1,13 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, Star, Zap, Shield, Building2, ArrowRight, HelpCircle, ChevronDown, ChevronUp, Sparkles, BarChart3, Download, Clock, Users, Globe, Lock, Headphones, Code2, Crown, Loader2 } from 'lucide-react'
+import { Check, Star, Zap, Shield, Building2, ArrowRight, HelpCircle, ChevronDown, ChevronUp, Sparkles, BarChart3, Download, Clock, Users, Globe, Lock, Headphones, Code2, Crown, Loader2, Rocket, Terminal } from 'lucide-react'
 import Link from 'next/link'
 import { useAuth } from '@/components/AuthProvider'
 import AuthModal from '@/components/AuthModal'
 import { FAQJsonLd } from '@/components/JsonLd'
 
-// ── Plan Data ──
+// ── 4-Tier Plan Data ──
 const plans = [
   {
     id: 'free',
@@ -19,35 +19,59 @@ const plans = [
     color: '#34d399',
     icon: <Zap size={18} />,
     features: [
-      { text: '3 audits per day', highlight: false },
-      { text: 'Basic performance reports', highlight: false },
-      { text: 'Issue detection & categorization', highlight: false },
-      { text: 'Last 10 scans in history', highlight: false },
-      { text: 'Standard recommendations', highlight: false },
-      { text: 'Code snippet library access', highlight: false },
+      { text: '5 audits per day', highlight: false },
+      { text: 'Full Lighthouse audit', highlight: false },
+      { text: '8-module site audit', highlight: false },
+      { text: 'Core Web Vitals + CrUX', highlight: false },
+      { text: 'Code snippet library', highlight: false },
+      { text: '7-day scan history (15 scans)', highlight: false },
+      { text: '3 shareable reports/month', highlight: false },
     ],
     cta: 'Start Free',
     href: '/dashboard',
     highlight: false,
   },
   {
+    id: 'starter',
+    name: 'Starter',
+    tagline: "Developer's toolkit",
+    monthlyPrice: 5,
+    yearlyPrice: 48,
+    desc: 'More audits, history, and exports for developers who audit regularly.',
+    color: '#38bdf8',
+    icon: <Rocket size={18} />,
+    features: [
+      { text: '25 audits per day', highlight: true },
+      { text: '90-day scan history', highlight: true },
+      { text: 'Trend tracking with sparklines', highlight: true },
+      { text: 'PDF report export (10/mo)', highlight: true },
+      { text: 'CSV/JSON data export', highlight: false },
+      { text: 'Batch audit (3 URLs)', highlight: false },
+      { text: 'Full analytics dashboard', highlight: false },
+      { text: 'Unlimited shareable reports', highlight: false },
+    ],
+    cta: 'Get Starter',
+    href: '#',
+    highlight: false,
+  },
+  {
     id: 'pro',
     name: 'Pro',
     tagline: 'Most popular',
-    monthlyPrice: 9,
-    yearlyPrice: 89,
-    desc: 'Unlimited audits, deep insights, and tools built for professional developers.',
+    monthlyPrice: 19,
+    yearlyPrice: 179,
+    desc: 'Unlimited audits, monitoring, API access, and tools built for performance engineers.',
     color: '#818cf8',
     icon: <Sparkles size={18} />,
     features: [
       { text: 'Unlimited audits', highlight: true },
-      { text: 'Historical trend tracking', highlight: true },
-      { text: 'Benchmark comparison', highlight: false },
-      { text: 'Downloadable PDF reports', highlight: true },
-      { text: 'Advanced issue insights', highlight: false },
-      { text: 'Faster processing priority', highlight: true },
-      { text: 'Priority recommendations', highlight: false },
-      { text: 'Full analytics dashboard', highlight: true },
+      { text: 'Scheduled monitoring (10 URLs)', highlight: true },
+      { text: 'Performance budgets & alerts', highlight: true },
+      { text: 'Competitor benchmarking', highlight: false },
+      { text: 'REST API (1K req/day)', highlight: true },
+      { text: 'CI/CD CLI + GitHub Action', highlight: false },
+      { text: 'Batch audit (10 URLs)', highlight: false },
+      { text: 'Priority processing', highlight: true },
     ],
     cta: 'Upgrade to Pro',
     href: '#',
@@ -56,21 +80,21 @@ const plans = [
   {
     id: 'enterprise',
     name: 'Enterprise',
-    tagline: 'For teams',
+    tagline: 'For teams & agencies',
     monthlyPrice: -1, // Custom
     yearlyPrice: -1,
-    desc: 'Multi-site monitoring, team collaboration, and dedicated support for organizations.',
+    desc: 'Multi-site monitoring, team collaboration, and white-label reporting for organizations.',
     color: '#60a5fa',
     icon: <Building2 size={18} />,
     features: [
-      { text: 'Multi-site monitoring', highlight: true },
-      { text: 'Team dashboards & collaboration', highlight: true },
-      { text: 'Dedicated account support', highlight: false },
-      { text: 'Full API access', highlight: true },
-      { text: 'White-label reports', highlight: false },
-      { text: 'SLA & priority uptime', highlight: false },
-      { text: 'Advanced analytics & exports', highlight: false },
+      { text: 'Unlimited site monitoring', highlight: true },
+      { text: 'Team seats (5 included)', highlight: true },
+      { text: 'White-label PDF reports', highlight: true },
+      { text: 'REST API (10K req/day)', highlight: false },
       { text: 'Custom integrations', highlight: false },
+      { text: 'SSO + invoice billing', highlight: false },
+      { text: 'Dedicated account manager', highlight: false },
+      { text: 'Custom SLA', highlight: false },
     ],
     cta: 'Contact Sales',
     href: 'mailto:hello@vitalfix.dev',
@@ -100,7 +124,7 @@ export default function PricingPage() {
       return
     }
 
-    // Pro plan — redirect to Stripe Checkout
+    // Starter or Pro plan — redirect to Stripe Checkout
     if (!user) {
       setAuthOpen(true)
       return
@@ -111,7 +135,7 @@ export default function PricingPage() {
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ billingCycle }),
+        body: JSON.stringify({ planId, billingCycle }),
       })
       const data = await res.json()
       if (data.url) {
@@ -128,47 +152,55 @@ export default function PricingPage() {
 const faqs = [
   {
     q: 'Is the Free plan really free forever?',
-    a: 'Yes. The Free plan includes 3 daily audits, basic reports, and access to the full code snippet library — no credit card, no trial, no catch.',
+    a: 'Yes. The Free plan includes 5 daily audits, full site audit, and access to the complete code snippet library — no credit card, no trial, no catch.',
+  },
+  {
+    q: 'What\'s the difference between Starter and Pro?',
+    a: 'Starter ($5/mo) gives you 25 audits/day, 90-day history, PDF export, and trend tracking. Pro ($19/mo) removes all limits and adds scheduled monitoring, alerts, API access, and CI/CD integration.',
   },
   {
     q: 'How does yearly billing save me money?',
-    a: 'Yearly billing is $89/year instead of $108/year ($9/mo × 12). That\'s a 20% discount — you save $19 every year.',
+    a: 'Yearly billing saves ~20% on both Starter ($48/yr vs $60/yr) and Pro ($179/yr vs $228/yr).',
   },
   {
-    q: 'Can I cancel my Pro subscription anytime?',
-    a: 'Absolutely. Cancel anytime from your account dashboard. No cancellation fees, no questions asked. Your access continues until the end of the billing period.',
-  },
-  {
-    q: 'What does "faster processing priority" mean?',
-    a: 'Pro users get priority queue access for PSI audits, reducing wait times during peak hours. Free users share a standard queue.',
+    q: 'Can I cancel my subscription anytime?',
+    a: 'Absolutely. Cancel anytime from your account dashboard. No fees, no questions. Access continues until the end of the billing period.',
   },
   {
     q: 'Do you offer student or open-source discounts?',
-    a: 'Yes — email us at hello@vitalfix.dev with proof of student status or your open-source project link for a 50% discount on Pro.',
+    a: 'Yes — email us at hello@vitalfix.dev with proof of student status or your open-source project link for a 50% discount on any paid plan.',
   },
   {
     q: 'What\'s included in the Enterprise plan?',
-    a: 'Enterprise includes everything in Pro, plus multi-site monitoring, team dashboards, API access, white-label reports, dedicated support, and custom SLA. Contact us for custom pricing.',
+    a: 'Enterprise includes everything in Pro, plus unlimited site monitoring, team seats, white-label reports, SSO, custom integrations, dedicated support, and custom SLA. Contact us for pricing.',
   },
 ]
 
 const comparisonFeatures = [
-  { feature: 'Daily audits', free: '3', pro: 'Unlimited', enterprise: 'Unlimited' },
-  { feature: 'Scan history', free: 'Last 10', pro: 'Unlimited', enterprise: 'Unlimited' },
-  { feature: 'Performance reports', free: 'Basic', pro: 'Advanced', enterprise: 'Advanced + Custom' },
-  { feature: 'PDF export', free: '—', pro: '✓', enterprise: '✓' },
-  { feature: 'Trend tracking', free: '—', pro: '✓', enterprise: '✓' },
-  { feature: 'Analytics dashboard', free: '—', pro: '✓', enterprise: '✓' },
-  { feature: 'Priority processing', free: '—', pro: '✓', enterprise: '✓' },
-  { feature: 'Team collaboration', free: '—', pro: '—', enterprise: '✓' },
-  { feature: 'API access', free: '—', pro: '—', enterprise: '✓' },
-  { feature: 'White-label reports', free: '—', pro: '—', enterprise: '✓' },
-  { feature: 'Dedicated support', free: '—', pro: '—', enterprise: '✓' },
-  { feature: 'Custom SLA', free: '—', pro: '—', enterprise: '✓' },
+  { feature: 'Daily audits', free: '5', starter: '25', pro: 'Unlimited', enterprise: 'Unlimited' },
+  { feature: 'Scan history', free: '7 days', starter: '90 days', pro: 'Unlimited', enterprise: '2 years' },
+  { feature: 'Custom site audit', free: '✓', starter: '✓', pro: '✓', enterprise: '✓' },
+  { feature: 'Shareable reports', free: '3/mo', starter: '✓', pro: '✓', enterprise: '✓' },
+  { feature: 'Trend tracking', free: '—', starter: '✓', pro: '✓', enterprise: '✓' },
+  { feature: 'PDF export', free: '—', starter: '10/mo', pro: '✓', enterprise: '✓ (white-label)' },
+  { feature: 'CSV/JSON export', free: '—', starter: '✓', pro: '✓', enterprise: '✓' },
+  { feature: 'Batch audit', free: '—', starter: '3 URLs', pro: '10 URLs', enterprise: '50 URLs' },
+  { feature: 'Analytics dashboard', free: 'Basic', starter: 'Full', pro: 'Full', enterprise: 'Full' },
+  { feature: 'Scheduled monitoring', free: '—', starter: '—', pro: '10 URLs', enterprise: 'Unlimited' },
+  { feature: 'Performance budgets', free: '—', starter: '—', pro: '✓', enterprise: '✓' },
+  { feature: 'Alerts (email/Slack)', free: '—', starter: '—', pro: '✓', enterprise: '✓' },
+  { feature: 'REST API', free: '—', starter: '—', pro: '1K req/day', enterprise: '10K req/day' },
+  { feature: 'CI/CD + GitHub Action', free: '—', starter: '—', pro: '✓', enterprise: '✓' },
+  { feature: 'Team collaboration', free: '—', starter: '—', pro: '—', enterprise: '✓ (5 seats)' },
+  { feature: 'White-label reports', free: '—', starter: '—', pro: '—', enterprise: '✓' },
+  { feature: 'Custom integrations', free: '—', starter: '—', pro: '—', enterprise: '✓' },
+  { feature: 'SSO + invoice billing', free: '—', starter: '—', pro: '—', enterprise: '✓' },
+  { feature: 'Dedicated support', free: '—', starter: 'Email 48hr', pro: 'Email 24hr', enterprise: 'Named manager' },
 ]
 
   const isYearly = billing === 'yearly'
-  const yearlySavings = Math.round((1 - 89 / (9 * 12)) * 100) // ~18% ≈ 20%
+  const yearlySavings = 20 // ~20% across both paid tiers
+
 
   return (
     <div style={{ minHeight: '100vh' }}>
@@ -257,7 +289,7 @@ const comparisonFeatures = [
         <div className="container-pad">
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
             gap: '1.25rem',
             alignItems: 'start',
           }}>
@@ -405,7 +437,7 @@ const comparisonFeatures = [
                         letterSpacing: '0.06em', color: 'var(--text-muted)',
                         marginBottom: '0.2rem',
                       }}>
-                        {p.id === 'pro' ? 'Everything in Free, plus:' : 'Everything in Pro, plus:'}
+                        {p.id === 'starter' ? 'Everything in Free, plus:' : p.id === 'pro' ? 'Everything in Starter, plus:' : 'Everything in Pro, plus:'}
                       </div>
                     )}
                     {p.features.map(f => (
@@ -443,7 +475,7 @@ const comparisonFeatures = [
           {[
             { icon: <Shield size={18} color="#34d399" />, text: 'No credit card for Free' },
             { icon: <Lock size={18} color="#818cf8" />, text: '14-day money-back guarantee' },
-            { icon: <Zap size={18} color="#fbbf24" />, text: 'Cancel Pro anytime' },
+            { icon: <Zap size={18} color="#fbbf24" />, text: 'Cancel anytime, no questions' },
             { icon: <Globe size={18} color="#60a5fa" />, text: 'Used by developers worldwide' },
           ].map(t => (
             <div key={t.text} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -473,26 +505,28 @@ const comparisonFeatures = [
           </p>
 
           <div style={{
-            maxWidth: 780, margin: '0 auto',
+            maxWidth: 920, margin: '0 auto',
             borderRadius: 16, overflow: 'hidden',
             border: '1px solid var(--border)',
             background: 'var(--bg-card)',
+            overflowX: 'auto',
           }}>
             {/* Table header */}
             <div style={{
-              display: 'grid', gridTemplateColumns: '1.6fr 1fr 1fr 1fr',
+              display: 'grid', gridTemplateColumns: '1.8fr 0.8fr 0.8fr 0.8fr 0.8fr',
               padding: '0.85rem 1.25rem',
               background: 'var(--bg-secondary)',
               borderBottom: '1px solid var(--border)',
               gap: '0.5rem',
+              minWidth: 650,
             }}>
               <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Feature
               </span>
-              {['Free', 'Pro', 'Enterprise'].map(name => (
+              {['Free', 'Starter', 'Pro', 'Enterprise'].map(name => (
                 <span key={name} style={{
                   fontSize: '0.72rem', fontWeight: 700, textAlign: 'center',
-                  color: name === 'Pro' ? '#818cf8' : 'var(--text-muted)',
+                  color: name === 'Pro' ? '#818cf8' : name === 'Starter' ? '#38bdf8' : 'var(--text-muted)',
                   textTransform: 'uppercase', letterSpacing: '0.05em',
                 }}>
                   {name}
@@ -503,19 +537,20 @@ const comparisonFeatures = [
             {/* Table rows */}
             {comparisonFeatures.map((row, i) => (
               <div key={row.feature} style={{
-                display: 'grid', gridTemplateColumns: '1.6fr 1fr 1fr 1fr',
+                display: 'grid', gridTemplateColumns: '1.8fr 0.8fr 0.8fr 0.8fr 0.8fr',
                 padding: '0.7rem 1.25rem',
                 borderBottom: i < comparisonFeatures.length - 1 ? '1px solid var(--border-subtle)' : 'none',
                 gap: '0.5rem',
                 transition: 'background 150ms',
+                minWidth: 650,
               }}>
-                <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
                   {row.feature}
                 </span>
-                {[row.free, row.pro, row.enterprise].map((val, j) => (
+                {[row.free, row.starter, row.pro, row.enterprise].map((val, j) => (
                   <span key={j} style={{
-                    fontSize: '0.82rem', textAlign: 'center', fontWeight: 500,
-                    color: val === '✓' ? '#34d399' : val === '—' ? 'var(--text-muted)' : 'var(--text-primary)',
+                    fontSize: '0.78rem', textAlign: 'center', fontWeight: 500,
+                    color: val === '✓' || val?.toString().includes('✓') ? '#34d399' : val === '—' ? 'var(--text-muted)' : 'var(--text-primary)',
                   }}>
                     {val}
                   </span>

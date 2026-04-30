@@ -359,9 +359,12 @@ export async function GET(req: NextRequest) {
     try {
       const quota = await checkQuota(userId)
       if (!quota.allowed) {
+        const upgradeMsg = quota.plan === 'free'
+          ? 'Upgrade to Starter ($5/mo) for 25 audits/day.'
+          : 'Upgrade to Pro ($19/mo) for unlimited audits.'
         return NextResponse.json(
           {
-            error: `Daily audit limit reached (${quota.used}/${quota.limit}). Upgrade to Pro for unlimited audits.`,
+            error: `Daily audit limit reached (${quota.used}/${quota.limit}). ${upgradeMsg}`,
             hint: 'Visit /pricing to upgrade your plan.',
             quotaExceeded: true,
             used: quota.used,

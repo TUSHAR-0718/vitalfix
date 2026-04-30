@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Search, AlertTriangle, ArrowRight, Terminal, Globe, Wifi, Smartphone, Monitor, MapPin, GitCompare, Zap, BarChart3, Eye, ShieldCheck, Shield, Star, ExternalLink, RefreshCw, CheckCircle, XCircle, Clock, FileText, WifiOff, Timer, Ban, AlertCircle, Share2, Link2 } from 'lucide-react'
+import { Search, AlertTriangle, ArrowRight, Terminal, Globe, Wifi, Smartphone, Monitor, MapPin, GitCompare, Zap, BarChart3, Eye, ShieldCheck, Shield, Star, ExternalLink, RefreshCw, CheckCircle, XCircle, Clock, FileText, WifiOff, Timer, Ban, AlertCircle, Share2, Link2, Rocket } from 'lucide-react'
 import ScoreRing from '@/components/ScoreRing'
 import Link from 'next/link'
 import type { AuditResult } from './types'
@@ -234,13 +234,14 @@ export default function DashboardPage() {
               <span style={{
                 display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
                 padding: '0.2rem 0.65rem', borderRadius: 100, fontSize: '0.68rem', fontWeight: 700,
-                background: plan === 'pro' ? 'rgba(129,140,248,0.12)' : plan === 'enterprise' ? 'rgba(96,165,250,0.12)' : 'rgba(52,211,153,0.12)',
-                color: plan === 'pro' ? '#818cf8' : plan === 'enterprise' ? '#60a5fa' : '#34d399',
-                border: `1px solid ${plan === 'pro' ? 'rgba(129,140,248,0.25)' : plan === 'enterprise' ? 'rgba(96,165,250,0.25)' : 'rgba(52,211,153,0.25)'}`,
+                background: plan === 'pro' ? 'rgba(129,140,248,0.12)' : plan === 'enterprise' ? 'rgba(96,165,250,0.12)' : plan === 'starter' ? 'rgba(56,189,248,0.12)' : 'rgba(52,211,153,0.12)',
+                color: plan === 'pro' ? '#818cf8' : plan === 'enterprise' ? '#60a5fa' : plan === 'starter' ? '#38bdf8' : '#34d399',
+                border: `1px solid ${plan === 'pro' ? 'rgba(129,140,248,0.25)' : plan === 'enterprise' ? 'rgba(96,165,250,0.25)' : plan === 'starter' ? 'rgba(56,189,248,0.25)' : 'rgba(52,211,153,0.25)'}`,
                 textTransform: 'uppercase', letterSpacing: '0.04em',
               }}>
                 {plan === 'pro' && <Star size={10} fill="#818cf8" />}
                 {plan === 'enterprise' && <Shield size={10} />}
+                {plan === 'starter' && <Rocket size={10} />}
                 {plan} plan
               </span>
             )}
@@ -294,7 +295,7 @@ export default function DashboardPage() {
                 fontSize: '0.78rem', fontWeight: 700, color: '#818cf8',
                 textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
               }}>
-                Upgrade to Pro for unlimited <ArrowRight size={12} />
+                {plan === 'free' ? 'Upgrade to Starter for 25/day' : 'Upgrade to Pro for unlimited'} <ArrowRight size={12} />
               </Link>
             </div>
           )}

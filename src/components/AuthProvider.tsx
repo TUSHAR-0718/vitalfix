@@ -25,8 +25,8 @@ const AuthContext = createContext<AuthContextType>({
   session: null,
   loading: true,
   plan: 'free',
-  quotaRemaining: 3,
-  quotaLimit: 3,
+  quotaRemaining: 5,
+  quotaLimit: 5,
   quotaUsed: 0,
   signIn: async () => ({ error: 'Not configured' }),
   signUp: async () => ({ error: 'Not configured' }),
@@ -40,7 +40,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [plan, setPlan] = useState<PlanTier>('free')
-  const [quota, setQuota] = useState<QuotaResult>({ allowed: true, used: 0, limit: 3, remaining: 3, plan: 'free' })
+  const [quota, setQuota] = useState<QuotaResult>({ allowed: true, used: 0, limit: 5, remaining: 5, plan: 'free' })
   const configured = isSupabaseConfigured()
 
   // Fetch profile + quota from Supabase
@@ -80,7 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(session)
         setUser(session?.user ?? null)
         if (session?.user) refreshProfile(session.user.id)
-        else { setPlan('free'); setQuota({ allowed: true, used: 0, limit: 3, remaining: 3, plan: 'free' }) }
+        else { setPlan('free'); setQuota({ allowed: true, used: 0, limit: 5, remaining: 5, plan: 'free' }) }
       }
     )
 

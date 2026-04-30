@@ -6,7 +6,7 @@
 -- User profiles with plan and billing info
 create table if not exists public.profiles (
   id                      uuid primary key references auth.users(id) on delete cascade,
-  plan                    text not null default 'free',       -- free | pro | enterprise
+  plan                    text not null default 'free',       -- free | starter | pro | enterprise
   stripe_customer_id      text,
   stripe_subscription_id  text,
   plan_expires_at         timestamptz,
