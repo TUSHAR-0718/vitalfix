@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import {
   Clock, Trash2, Download, ChevronDown, ChevronRight,
   Smartphone, Monitor, AlertTriangle, BarChart3, GitCompare,
-  X, ArrowUpRight, ArrowDownRight, Minus,
+  X, ArrowUpRight, ArrowDownRight, Minus, FileSpreadsheet, FileJson, Lock,
 } from 'lucide-react'
 import ScoreRing from '@/components/ScoreRing'
 import Sparkline from '@/components/Sparkline'
@@ -15,6 +15,7 @@ import {
 } from '@/lib/scan-store'
 import { scoreColor } from './utils'
 import { useAuth } from '@/components/AuthProvider'
+import Link from 'next/link'
 
 interface HistoryTabProps {
   currentUrl?: string
@@ -28,7 +29,10 @@ export default function HistoryTab({ currentUrl, onLoadScan }: HistoryTabProps) 
   const [showCompare, setShowCompare] = useState(false)
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
   const [confirmClear, setConfirmClear] = useState(false)
-  const { user } = useAuth()
+  const [showExportMenu, setShowExportMenu] = useState(false)
+  const { user, plan } = useAuth()
+
+  const canExportCSV = plan === 'starter' || plan === 'pro' || plan === 'enterprise'
 
   // Load history on mount and when user changes
   useEffect(() => {
@@ -65,6 +69,24 @@ export default function HistoryTab({ currentUrl, onLoadScan }: HistoryTabProps) 
     })
   }, [currentUrl, scans.length, user?.id])
 
+  // Per-URL sparkline data (cached)
+  const urlSparklines = useMemo(() => {
+    const map = new Map<string, number[]>()
+    // Group scans by normalized URL and collect scores (oldest first)
+    const byUrl = new Map<string, StoredScan[]>()
+    for (const scan of [...scans].reverse()) {
+      const key = scan.url.replace(/^https?:\/\//, '').replace(/\/$/, '')
+      if (!byUrl.has(key)) byUrl.set(key, [])
+      byUrl.get(key)!.push(scan)
+    }
+    for (const [key, urlScans] of byUrl) {
+      if (urlScans.length >= 2) {
+        map.set(key, urlScans.map(s => s.healthScore))
+      }
+    }
+    return map
+  }, [scans])
+
   const groups = useMemo(() => groupByDate(scans), [scans])
 
   const handleDelete = async (id: string) => {
@@ -84,11 +106,12 @@ export default function HistoryTab({ currentUrl, onLoadScan }: HistoryTabProps) 
     setConfirmClear(false)
   }
 
-  const handleExport = async () => {
-    const blobUrl = await exportHistory(user?.id)
+  const handleExport = async (format: 'json' | 'csv') => {
+    setShowExportMenu(false)
+    const blobUrl = await exportHistory(user?.id, format)
     const a = document.createElement('a')
     a.href = blobUrl
-    a.download = `vitalfix-history-${new Date().toISOString().slice(0, 10)}.json`
+    a.download = `vitalfix-history-${new Date().toISOString().slice(0, 10)}.${format}`
     a.click()
     URL.revokeObjectURL(blobUrl)
   }
@@ -174,7 +197,7 @@ export default function HistoryTab({ currentUrl, onLoadScan }: HistoryTabProps) 
         <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>
           {scans.length} scan{scans.length !== 1 ? 's' : ''} saved
         </span>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem' }}>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.4rem', position: 'relative' }}>
           {(compareA || compareB) && (
             <button
               onClick={() => { setCompareA(null); setCompareB(null); setShowCompare(false) }}
@@ -187,9 +210,68 @@ export default function HistoryTab({ currentUrl, onLoadScan }: HistoryTabProps) 
           <button onClick={() => { setShowCompare(!showCompare); if (!showCompare && compareA && compareB) setShowCompare(true) }} className="btn-ghost" style={{ fontSize: '0.72rem' }} disabled={!compareA && !compareB}>
             <GitCompare size={12} /> Compare {compareA && compareB ? '✓' : `(${[compareA, compareB].filter(Boolean).length}/2)`}
           </button>
-          <button onClick={handleExport} className="btn-ghost" style={{ fontSize: '0.72rem' }}>
-            <Download size={12} /> Export
-          </button>
+
+          {/* Export dropdown */}
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="btn-ghost"
+              style={{ fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+            >
+              <Download size={12} /> Export <ChevronDown size={10} />
+            </button>
+            {showExportMenu && (
+              <div style={{
+                position: 'absolute', right: 0, top: '100%', marginTop: 4,
+                background: 'var(--bg-card)', border: '1px solid var(--border)',
+                borderRadius: 10, padding: '0.35rem', minWidth: 160,
+                boxShadow: '0 8px 30px rgba(0,0,0,0.2)',
+                zIndex: 50, animation: 'fadeIn 150ms ease',
+              }}>
+                <button
+                  onClick={() => handleExport('json')}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%',
+                    padding: '0.5rem 0.75rem', borderRadius: 7, border: 'none',
+                    background: 'transparent', cursor: 'pointer', color: 'var(--text-primary)',
+                    fontSize: '0.78rem', fontWeight: 500, transition: 'background 100ms',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <FileJson size={14} color="#818cf8" /> Export as JSON
+                </button>
+                {canExportCSV ? (
+                  <button
+                    onClick={() => handleExport('csv')}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%',
+                      padding: '0.5rem 0.75rem', borderRadius: 7, border: 'none',
+                      background: 'transparent', cursor: 'pointer', color: 'var(--text-primary)',
+                      fontSize: '0.78rem', fontWeight: 500, transition: 'background 100ms',
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <FileSpreadsheet size={14} color="#34d399" /> Export as CSV
+                  </button>
+                ) : (
+                  <Link
+                    href="/pricing"
+                    onClick={() => setShowExportMenu(false)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%',
+                      padding: '0.5rem 0.75rem', borderRadius: 7, textDecoration: 'none',
+                      color: 'var(--text-muted)', fontSize: '0.78rem', fontWeight: 500,
+                    }}
+                  >
+                    <Lock size={14} color="var(--text-muted)" /> CSV (Starter+)
+                  </Link>
+                )}
+              </div>
+            )}
+          </div>
+
           <button onClick={handleClear} className="btn-ghost" style={{ fontSize: '0.72rem', color: confirmClear ? '#f87171' : undefined }}>
             <Trash2 size={12} /> {confirmClear ? 'Confirm Clear?' : 'Clear All'}
           </button>
@@ -225,16 +307,21 @@ export default function HistoryTab({ currentUrl, onLoadScan }: HistoryTabProps) 
             {/* Scan cards */}
             {isExpanded && (
               <div className="stagger" style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', paddingLeft: '0.75rem', borderLeft: '2px solid var(--border)' }}>
-                {group.scans.map(scan => (
-                  <ScanCard
-                    key={scan.id}
-                    scan={scan}
-                    isCompareSelected={compareA?.id === scan.id || compareB?.id === scan.id}
-                    onLoad={() => onLoadScan?.(scan)}
-                    onDelete={() => handleDelete(scan.id)}
-                    onCompare={() => toggleCompare(scan)}
-                  />
-                ))}
+                {group.scans.map(scan => {
+                  const urlKey = scan.url.replace(/^https?:\/\//, '').replace(/\/$/, '')
+                  const trendScores = urlSparklines.get(urlKey) || null
+                  return (
+                    <ScanCard
+                      key={scan.id}
+                      scan={scan}
+                      trendScores={trendScores}
+                      isCompareSelected={compareA?.id === scan.id || compareB?.id === scan.id}
+                      onLoad={() => onLoadScan?.(scan)}
+                      onDelete={() => handleDelete(scan.id)}
+                      onCompare={() => toggleCompare(scan)}
+                    />
+                  )
+                })}
               </div>
             )}
           </div>
@@ -245,8 +332,9 @@ export default function HistoryTab({ currentUrl, onLoadScan }: HistoryTabProps) 
 }
 
 // ── Individual Scan Card ──
-function ScanCard({ scan, isCompareSelected, onLoad, onDelete, onCompare }: {
+function ScanCard({ scan, trendScores, isCompareSelected, onLoad, onDelete, onCompare }: {
   scan: StoredScan
+  trendScores: number[] | null
   isCompareSelected: boolean
   onLoad: () => void
   onDelete: () => void
@@ -255,10 +343,12 @@ function ScanCard({ scan, isCompareSelected, onLoad, onDelete, onCompare }: {
   return (
     <div
       className="glass-card"
+      onClick={onLoad}
       style={{
-        padding: '1rem 1.25rem',
+        padding: '1rem 1.25rem', cursor: 'pointer',
         borderColor: isCompareSelected ? 'rgba(129,140,248,0.4)' : undefined,
         background: isCompareSelected ? 'rgba(129,140,248,0.04)' : undefined,
+        transition: 'border-color 150ms, background 150ms',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
@@ -328,8 +418,20 @@ function ScanCard({ scan, isCompareSelected, onLoad, onDelete, onCompare }: {
           )}
         </div>
 
+        {/* Mini sparkline (when URL has 2+ scans) */}
+        {trendScores && trendScores.length >= 2 && (
+          <div style={{ flexShrink: 0, opacity: 0.7 }} title={`${trendScores.length} scans for this URL`}>
+            <Sparkline
+              data={trendScores}
+              width={60}
+              height={24}
+              color={scoreColor(scan.healthScore)}
+            />
+          </div>
+        )}
+
         {/* Actions */}
-        <div style={{ display: 'flex', gap: '0.3rem', flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: '0.3rem', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
           <button
             onClick={onCompare}
             title="Select for comparison"

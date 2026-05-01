@@ -164,13 +164,39 @@ export async function clearHistory(userId?: string | null): Promise<void> {
 
 // ── Export (always reads from current source) ──
 
-export async function exportHistory(userId?: string | null): Promise<string> {
+export async function exportHistory(userId?: string | null, format: 'json' | 'csv' = 'json'): Promise<string> {
+  let scans: StoredScan[]
   if (userId && supabase) {
-    const scans = await getHistory(userId)
-    const blob = new Blob([JSON.stringify(scans, null, 2)], { type: 'application/json' })
+    scans = await getHistory(userId)
+  } else {
+    scans = localGetHistory()
+  }
+
+  if (format === 'csv') {
+    const headers = ['URL', 'Strategy', 'Date', 'Health Score', 'Performance', 'Accessibility', 'Best Practices', 'SEO', 'Site Audit', 'Critical', 'Moderate', 'Minor', 'Total Findings']
+    const rows = scans.map(s => [
+      s.url,
+      s.strategy,
+      new Date(s.fetchedAt).toISOString(),
+      s.healthScore,
+      s.scores?.performance ?? '',
+      s.scores?.accessibility ?? '',
+      s.scores?.bestPractices ?? '',
+      s.scores?.seo ?? '',
+      s.customAuditScore ?? '',
+      s.critical,
+      s.moderate,
+      s.minor,
+      s.totalFindings,
+    ].map(v => typeof v === 'string' && v.includes(',') ? `"${v}"` : v).join(','))
+    const csv = [headers.join(','), ...rows].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
     return URL.createObjectURL(blob)
   }
-  return localExport()
+
+  // JSON (default)
+  const blob = new Blob([JSON.stringify(scans, null, 2)], { type: 'application/json' })
+  return URL.createObjectURL(blob)
 }
 
 // ── Migrate localStorage → Supabase (one-time on first login) ──
