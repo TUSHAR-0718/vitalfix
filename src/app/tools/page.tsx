@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { Gauge, Info, Wifi } from 'lucide-react'
+import { Info } from 'lucide-react'
 
 // ── TTFB Breakdown Tool ──
 function TTFBTool() {

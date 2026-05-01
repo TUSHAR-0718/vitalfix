@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { ArrowRight, Zap, BarChart3, Code2, CheckSquare, Gauge, TrendingUp, Search, Star, Activity } from 'lucide-react'
+import { ArrowRight, Code2, CheckSquare, Gauge, TrendingUp, Search, Star, Activity } from 'lucide-react'
 import BenchmarkSection from '@/components/BenchmarkSection'
 import { WebApplicationJsonLd, OrganizationJsonLd } from '@/components/JsonLd'
 import ExitIntentWrapper from '@/components/ExitIntentWrapper'

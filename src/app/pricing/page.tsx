@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, Star, Zap, Shield, Building2, ArrowRight, HelpCircle, ChevronDown, ChevronUp, Sparkles, BarChart3, Download, Clock, Users, Globe, Lock, Headphones, Code2, Crown, Loader2, Rocket, Terminal } from 'lucide-react'
+import { Check, Star, Zap, Shield, Building2, ArrowRight, ChevronDown, ChevronUp, Sparkles, BarChart3, Download, Globe, Lock, Code2, Crown, Loader2, Rocket } from 'lucide-react'
 import Link from 'next/link'
 import { useAuth } from '@/components/AuthProvider'
 import AuthModal from '@/components/AuthModal'

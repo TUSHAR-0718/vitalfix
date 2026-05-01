@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
   Clock, Trash2, Download, ChevronDown, ChevronRight,
-  Smartphone, Monitor, AlertTriangle, BarChart3, GitCompare,
+  Smartphone, Monitor, BarChart3, GitCompare,
   X, ArrowUpRight, ArrowDownRight, Minus, FileSpreadsheet, FileJson, Lock,
 } from 'lucide-react'
 import ScoreRing from '@/components/ScoreRing'
@@ -72,18 +72,19 @@ export default function HistoryTab({ currentUrl, onLoadScan }: HistoryTabProps) 
   // Per-URL sparkline data (cached)
   const urlSparklines = useMemo(() => {
     const map = new Map<string, number[]>()
-    // Group scans by normalized URL and collect scores (oldest first)
     const byUrl = new Map<string, StoredScan[]>()
-    for (const scan of [...scans].reverse()) {
+    const reversed = [...scans].reverse()
+    for (let i = 0; i < reversed.length; i++) {
+      const scan = reversed[i]
       const key = scan.url.replace(/^https?:\/\//, '').replace(/\/$/, '')
       if (!byUrl.has(key)) byUrl.set(key, [])
       byUrl.get(key)!.push(scan)
     }
-    for (const [key, urlScans] of byUrl) {
+    byUrl.forEach((urlScans, key) => {
       if (urlScans.length >= 2) {
-        map.set(key, urlScans.map(s => s.healthScore))
+        map.set(key, urlScans.map((s: StoredScan) => s.healthScore))
       }
-    }
+    })
     return map
   }, [scans])
 

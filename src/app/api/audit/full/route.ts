@@ -310,8 +310,8 @@ export async function GET(req: NextRequest) {
     parsedUrl = new URL(url)
     if (!['http:', 'https:'].includes(parsedUrl.protocol)) throw new Error()
   } catch {
-    trackAuditEvent('invalid_url', ip, { url_attempted: url }).catch(() => {})
-    updateDailyCounters({ invalid_urls: 1 }).catch(() => {})
+    trackAuditEvent('invalid_url', ip, { url_attempted: url }).catch(() => { })
+    updateDailyCounters({ invalid_urls: 1 }).catch(() => { })
     return NextResponse.json({ error: 'Invalid URL. Must start with http:// or https://' }, { status: 400 })
   }
 
@@ -381,15 +381,15 @@ export async function GET(req: NextRequest) {
   const key = cacheKey(parsedUrl.href, strategy)
   const cached = getCached<any>(key)
   if (cached) {
-    trackAuditEvent('cache_hit', ip, { url: parsedUrl.hostname, strategy }).catch(() => {})
-    updateDailyCounters({ cache_hits: 1 }).catch(() => {})
+    trackAuditEvent('cache_hit', ip, { url: parsedUrl.hostname, strategy }).catch(() => { })
+    updateDailyCounters({ cache_hits: 1 }).catch(() => { })
     return NextResponse.json({ ...cached, fromCache: true })
   }
 
   // ── Analytics: track audit start ──
   const auditStartTime = Date.now()
-  trackAuditEvent('audit_run', ip, { url: parsedUrl.hostname, strategy }).catch(() => {})
-  updateDailyCounters({ total_audits: 1, cache_misses: 1 }).catch(() => {})
+  trackAuditEvent('audit_run', ip, { url: parsedUrl.hostname, strategy }).catch(() => { })
+  updateDailyCounters({ total_audits: 1, cache_misses: 1 }).catch(() => { })
 
   // ── Run PSI and Custom Audit INDEPENDENTLY ──
   // Architecture: Each engine has its own timeout. One failing does NOT kill the other.
@@ -532,16 +532,16 @@ export async function GET(req: NextRequest) {
     trackAuditEvent('audit_success', ip, {
       url: parsedUrl.hostname, strategy, latency_ms: latencyMs,
       health_score: healthScore, partial: response.partial, cache_hit: false,
-    }).catch(() => {})
+    }).catch(() => { })
     updateDailyCounters({
       successful: response.partial ? 0 : 1,
       partial: response.partial ? 1 : 0,
       avg_latency_ms: latencyMs,
-    }).catch(() => {})
+    }).catch(() => { })
 
     // ── Increment daily audit counter for plan enforcement ──
     if (userId) {
-      incrementAuditCount(userId).catch(() => {})
+      incrementAuditCount(userId).catch(() => { })
     }
 
     return NextResponse.json(response)
@@ -561,8 +561,8 @@ export async function GET(req: NextRequest) {
       url: parsedUrl?.hostname, strategy, latency_ms: failLatency,
       error_type: err instanceof PSIError ? 'psi_error' : 'unexpected',
       error_message: err?.message?.slice(0, 200),
-    }).catch(() => {})
-    updateDailyCounters({ failed: 1, api_failures: 1 }).catch(() => {})
+    }).catch(() => { })
+    updateDailyCounters({ failed: 1, api_failures: 1 }).catch(() => { })
 
     return NextResponse.json(
       { error: err?.message || 'An unexpected error occurred. Please try again.' },
