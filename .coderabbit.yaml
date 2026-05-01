@@ -1,0 +1,26 @@
+# ── CodeRabbit Configuration ──
+# Docs: https://docs.coderabbit.ai/guides/configure-coderabbit
+
+language: en-US
+
+reviews:
+  profile: chill          # balanced review intensity
+  high_level_summary: true
+  auto_review:
+    enabled: true
+    drafts: false          # skip draft PRs
+
+  path_instructions:
+    - path: "src/lib/**"
+      instructions: "Core business logic — flag any breaking changes to exported functions, quota enforcement, or plan gating."
+    - path: "src/app/api/**"
+      instructions: "API routes — check for security issues, missing auth checks, quota enforcement, and proper error handling."
+    - path: "src/app/dashboard/**"
+      instructions: "Dashboard UI — watch for unused imports, broken prop types, and accessibility issues. Some icons and imports may be reserved for upcoming features."
+    - path: "src/app/pricing/**"
+      instructions: "Pricing page — verify tier data matches plans.ts. All 4 tiers must be consistent."
+    - path: "supabase/**"
+      instructions: "Database schemas — flag any destructive migrations or missing RLS policies."
+
+chat:
+  auto_reply: true
