@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import { Search, AlertTriangle, ArrowRight, Terminal, Globe, Wifi, Smartphone, Monitor, MapPin, GitCompare, Zap, BarChart3, Eye, ShieldCheck, Shield, Star, ExternalLink, RefreshCw, CheckCircle, XCircle, Clock, FileText, WifiOff, Timer, Ban, AlertCircle, Share2, Link2, Rocket } from 'lucide-react'
+import { Search, AlertTriangle, ArrowRight, Terminal, Globe, Wifi, Smartphone, Monitor, MapPin, GitCompare, Zap, BarChart3, Eye, ShieldCheck, Shield, Star, ExternalLink, RefreshCw, CheckCircle, XCircle, Clock, FileText, WifiOff, Timer, Ban, AlertCircle, Share2, Link2, Rocket, Download, Lock } from 'lucide-react'
 import ScoreRing from '@/components/ScoreRing'
 import Link from 'next/link'
 import type { AuditResult } from './types'
@@ -24,6 +24,7 @@ import {
   executeAuditRequest, classifyError, getStageForElapsed, debounce,
   type AuditStageInfo, type AuditError, type ErrorCategory,
 } from '@/lib/request-engine'
+import { generatePdfReport } from '@/lib/pdf-export'
 
 const connections = ['4G (Fast)', '4G (Slow)', '3G', 'Cable']
 const locations = ['US East (Virginia)', 'EU West (London)', 'Asia (Singapore)', 'AU (Sydney)']
@@ -611,12 +612,23 @@ export default function DashboardPage() {
                   {shareSuccess ? <><Link2 size={12} /> Copied!</> : shareLoading ? <><RefreshCw size={12} style={{ animation: 'spin 0.8s linear infinite' }} /> Sharing…</> : <><Share2 size={12} /> Share</>}
                 </button>
                 <button
-                  onClick={() => window.print()}
+                  onClick={() => {
+                    if (plan === 'free') {
+                      alert('PDF export is available on Starter ($5/mo) and above. Visit /pricing to upgrade.')
+                      return
+                    }
+                    generatePdfReport(result)
+                    trackFeature('pdf_export')
+                  }}
                   className="btn-ghost"
                   id="export-pdf-btn"
-                  style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--accent)', padding: '0.25rem 0.5rem' }}
+                  style={{
+                    fontSize: '0.78rem', fontWeight: 600, padding: '0.25rem 0.5rem',
+                    color: plan === 'free' ? 'var(--text-muted)' : 'var(--accent)',
+                    display: 'flex', alignItems: 'center', gap: '0.3rem',
+                  }}
                 >
-                  <FileText size={12} /> Export PDF
+                  {plan === 'free' ? <><Lock size={12} /> PDF (Starter+)</> : <><Download size={12} /> Export PDF</>}
                 </button>
                 <a href={`https://pagespeed.web.dev/analysis?url=${encodeURIComponent(result.url)}`} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.78rem', color: 'var(--accent)', fontWeight: 600, textDecoration: 'none' }}>
                   View on PSI <ExternalLink size={12} />
