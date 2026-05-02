@@ -16,6 +16,7 @@ export interface PlanConfig {
   batchUrlLimit: number         // max URLs per batch audit
   shareableReportsLimit: number // -1 = unlimited, else per month
   pdfExportLimit: number        // -1 = unlimited, else per month
+  apiDailyLimit: number         // 0 = no API access, else requests/day
   features: string[]
   monthlyPrice: number          // in dollars, 0 = free, -1 = custom
   yearlyPrice: number           // in dollars, 0 = free, -1 = custom
@@ -31,6 +32,7 @@ export const PLANS: Record<PlanTier, PlanConfig> = {
     batchUrlLimit: 1,
     shareableReportsLimit: 3,
     pdfExportLimit: 0,
+    apiDailyLimit: 0,
     features: [
       '5 audits per day',
       'Full Lighthouse audit',
@@ -52,6 +54,7 @@ export const PLANS: Record<PlanTier, PlanConfig> = {
     batchUrlLimit: 3,
     shareableReportsLimit: -1,
     pdfExportLimit: 10,
+    apiDailyLimit: 0,
     features: [
       '25 audits per day',
       '90-day scan history',
@@ -74,6 +77,7 @@ export const PLANS: Record<PlanTier, PlanConfig> = {
     batchUrlLimit: 10,
     shareableReportsLimit: -1,
     pdfExportLimit: -1,
+    apiDailyLimit: 1000,
     features: [
       'Unlimited audits',
       'Unlimited scan history',
@@ -96,6 +100,7 @@ export const PLANS: Record<PlanTier, PlanConfig> = {
     batchUrlLimit: 50,
     shareableReportsLimit: -1,
     pdfExportLimit: -1,
+    apiDailyLimit: 10000,
     features: [
       'Everything in Pro',
       'Unlimited site monitoring',
@@ -131,6 +136,9 @@ export interface UserProfile {
   planExpiresAt: string | null
   dailyAuditCount: number
   dailyAuditReset: string
+  apiKey: string | null
+  apiDailyCount: number
+  apiDailyReset: string
 }
 
 // ── Get User Profile ──
@@ -154,6 +162,9 @@ export async function getProfile(userId: string): Promise<UserProfile | null> {
     planExpiresAt: data.plan_expires_at,
     dailyAuditCount: data.daily_audit_count,
     dailyAuditReset: data.daily_audit_reset,
+    apiKey: data.api_key || null,
+    apiDailyCount: data.api_daily_count || 0,
+    apiDailyReset: data.api_daily_reset || new Date().toISOString().slice(0, 10),
   }
 }
 
