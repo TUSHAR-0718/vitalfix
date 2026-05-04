@@ -43,7 +43,6 @@ function isBlocked(hostname: string): boolean {
 }
 
 // ── PSI Response parsing ──
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractLighthouseData(data: any) {
   const lhr = data?.lighthouseResult
   if (!lhr) return null
@@ -78,10 +77,8 @@ function extractLighthouseData(data: any) {
 
   // Opportunities
   const opAudits = Object.values(audits).filter(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (a: any) => a?.score != null && a.score < 0.9 && a.details?.type === 'opportunity'
   )
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const opportunities = opAudits.map((a: any) => ({
     id: String(a.id || ''),
     title: String(a.title || ''),
@@ -93,10 +90,8 @@ function extractLighthouseData(data: any) {
 
   // Diagnostics
   const diagAudits = Object.values(audits).filter(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (a: any) => a?.details?.type === 'table'
   )
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const diagnostics = diagAudits.slice(0, 15).map((a: any) => ({
     id: String(a.id || ''),
     title: String(a.title || ''),
