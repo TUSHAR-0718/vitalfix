@@ -22,10 +22,24 @@ const PRIVATE_IP = [
   /^10\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./,
   /^169\.254\./, /^0\./, /^100\.(6[4-9]|[7-9]\d|1[0-2]\d)\./,
 ]
+// IPv6-mapped IPv4 patterns (e.g. [::ffff:127.0.0.1], [::ffff:10.0.0.1])
+const IPV6_MAPPED = /^\[?::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\]?$/i
+// Cloud metadata endpoints
+const METADATA_IPS = ['169.254.169.254', 'metadata.google.internal']
 
 function isBlocked(hostname: string): boolean {
-  const h = hostname.toLowerCase()
-  return BLOCKED_HOSTS.includes(h) || PRIVATE_IP.some(p => p.test(h))
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, '')
+  if (BLOCKED_HOSTS.includes(h) || BLOCKED_HOSTS.includes(`[${h}]`)) return true
+  if (METADATA_IPS.includes(h)) return true
+  // Check IPv6-mapped IPv4 addresses
+  const mapped = h.match(IPV6_MAPPED)
+  if (mapped) {
+    const ipv4 = mapped[1]
+    if (BLOCKED_HOSTS.includes(ipv4)) return true
+    if (PRIVATE_IP.some(p => p.test(ipv4))) return true
+    if (METADATA_IPS.includes(ipv4)) return true
+  }
+  return PRIVATE_IP.some(p => p.test(h))
 }
 
 // ── PSI Response parsing ──

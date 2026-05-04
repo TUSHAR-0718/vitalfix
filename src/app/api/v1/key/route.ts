@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const key = await createApiKey(user.id)
+    const key = await createApiKey(user.id, supabase)
     if (!key) {
       return NextResponse.json(
         { error: 'Failed to generate API key.' },
@@ -98,7 +98,7 @@ export async function DELETE(req: NextRequest) {
       )
     }
 
-    const success = await revokeApiKey(user.id)
+    const success = await revokeApiKey(user.id, supabase)
     if (!success) {
       return NextResponse.json(
         { error: 'Failed to revoke API key.' },

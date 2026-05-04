@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { PLANS, type PlanTier, type UserProfile } from '@/lib/plans'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 
 // ── Types ──
@@ -174,13 +175,19 @@ export function generateApiKey(): string {
 }
 
 // ── Save API Key to Profile ──
+// Accepts an optional authenticated Supabase client for RLS-compliant updates.
+// When called from route handlers, pass the session-authenticated server client.
 
-export async function createApiKey(userId: string): Promise<string | null> {
-  if (!supabase) return null
+export async function createApiKey(
+  userId: string,
+  client?: SupabaseClient
+): Promise<string | null> {
+  const db = client || supabase
+  if (!db) return null
 
   const key = generateApiKey()
 
-  const { error } = await supabase
+  const { error } = await db
     .from('profiles')
     .update({
       api_key: key,
@@ -197,11 +204,16 @@ export async function createApiKey(userId: string): Promise<string | null> {
 }
 
 // ── Revoke API Key ──
+// Accepts an optional authenticated Supabase client for RLS-compliant updates.
 
-export async function revokeApiKey(userId: string): Promise<boolean> {
-  if (!supabase) return false
+export async function revokeApiKey(
+  userId: string,
+  client?: SupabaseClient
+): Promise<boolean> {
+  const db = client || supabase
+  if (!db) return false
 
-  const { error } = await supabase
+  const { error } = await db
     .from('profiles')
     .update({
       api_key: null,
