@@ -51,8 +51,8 @@ module.exports = withSentryConfig(nextConfig, {
   // Upload wider set of client source files for better stack traces
   widenClientFileUpload: true,
 
-  // Proxy API route to bypass ad-blockers
-  tunnelRoute: "/monitoring",
+  // Proxy API route to bypass ad-blockers (disabled in dev to prevent DNS errors)
+  tunnelRoute: process.env.NODE_ENV === "production" ? "/monitoring" : undefined,
 
   // Suppress build output in non-CI environments
   silent: !process.env.CI,

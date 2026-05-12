@@ -123,7 +123,8 @@ export default function HomePage() {
 
           <div className="animate-fade-up" style={{ animationDelay: '0.15s', opacity: 0 }}>
             <h1 className="text-display" style={{ marginBottom: '1.25rem', maxWidth: 700, margin: '0 auto 1.25rem' }}>
-              Fix Your Core Web Vitals.{' '}
+              fastest way to understand and fix performance
+              <br />
               <span className="gradient-text">Ship Faster.</span>
             </h1>
           </div>

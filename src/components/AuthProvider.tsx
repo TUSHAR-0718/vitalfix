@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 import { getProfile, checkQuota, type PlanTier, type QuotaResult } from '@/lib/plans'
 import type { User, Session } from '@supabase/supabase-js'
@@ -43,22 +43,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [quota, setQuota] = useState<QuotaResult>({ allowed: true, used: 0, limit: 5, remaining: 5, plan: 'free' })
   const configured = isSupabaseConfigured()
 
-  // Fetch profile + quota from Supabase
-  const refreshProfile = useCallback(async (userId?: string) => {
-    const uid = userId || user?.id
-    if (!uid || !supabase) return
+  // Keep a ref to the current user ID so the stable callback can read it
+  const userIdRef = useRef<string | undefined>(undefined)
+  useEffect(() => { userIdRef.current = user?.id }, [user?.id])
 
+  // Internal fetcher — takes an explicit userId, has zero reactive deps, safe in effects
+  const fetchProfile = useCallback(async (userId: string) => {
+    if (!supabase) return
     try {
       const [profile, quotaResult] = await Promise.all([
-        getProfile(uid),
-        checkQuota(uid),
+        getProfile(userId),
+        checkQuota(userId),
       ])
       if (profile) setPlan(profile.plan)
       if (quotaResult) setQuota(quotaResult)
     } catch {
       // Profile table may not exist yet — gracefully degrade
     }
-  }, [user?.id])
+  }, [])
+
+  // Public refreshProfile — reads current user from the ref so it stays stable
+  const refreshProfile = useCallback(async () => {
+    const uid = userIdRef.current
+    if (uid) await fetchProfile(uid)
+  }, [fetchProfile])
 
   useEffect(() => {
     if (!supabase) {
@@ -71,7 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(session)
       setUser(session?.user ?? null)
       setLoading(false)
-      if (session?.user) refreshProfile(session.user.id)
+      if (session?.user) fetchProfile(session.user.id)
     })
 
     // Listen for auth changes
@@ -79,13 +87,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       (_event, session) => {
         setSession(session)
         setUser(session?.user ?? null)
-        if (session?.user) refreshProfile(session.user.id)
+        if (session?.user) fetchProfile(session.user.id)
         else { setPlan('free'); setQuota({ allowed: true, used: 0, limit: 5, remaining: 5, plan: 'free' }) }
       }
     )
 
     return () => subscription.unsubscribe()
-  }, [])
+  }, [fetchProfile])
 
   const signIn = useCallback(async (email: string, password: string) => {
     if (!supabase) return { error: 'Supabase not configured' }
