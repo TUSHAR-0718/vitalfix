@@ -14,6 +14,7 @@ import {
   getRegionalInsights, rateMetric,
   type ConnectionProfile, type LocationProfile,
 } from '@/lib/audit-context'
+import { getFeatureFlag, captureServerEvent } from '@/lib/posthog'
 
 // Vercel serverless function config — audit can take up to 120s
 export const maxDuration = 180
@@ -391,6 +392,15 @@ export async function GET(req: NextRequest) {
   trackAuditEvent('audit_run', ip, { url: parsedUrl.hostname, strategy }).catch(() => { })
   updateDailyCounters({ total_audits: 1, cache_misses: 1 }).catch(() => { })
 
+  // ── Feature Flag: PSI Kill Switch ──
+  // Check if PSI API is enabled via PostHog feature flag.
+  // Default: true (PSI runs normally). Set to false in PostHog to disable PSI during outages.
+  const psiEnabled = await getFeatureFlag(
+    'psi-api-enabled',
+    userId || ip,  // Use userId if authenticated, IP as fallback for anonymous
+    true,          // Default: PSI is enabled
+  )
+
   // ── Run PSI and Custom Audit INDEPENDENTLY ──
   // Architecture: Each engine has its own timeout. One failing does NOT kill the other.
   // The global safety-net collects whatever partial results are available — NEVER rejects.
@@ -420,7 +430,15 @@ export async function GET(req: NextRequest) {
     ])
 
     // ── PSI with fallback: full 4-category → lite perf-only on timeout ──
+    // If PSI is disabled via feature flag, skip entirely (kill switch for outages)
     const psiWithFallback = async () => {
+      if (!psiEnabled) {
+        psiError = 'PSI disabled via feature flag'
+        console.log('[audit API] PSI skipped — disabled via PostHog feature flag "psi-api-enabled"')
+        captureServerEvent(userId || ip, 'psi_killed_by_flag', { url: parsedUrl.hostname })
+        return null
+      }
+
       try {
         return await fetchLighthouse(parsedUrl.href, strategy, PSI_TIMEOUT)
       } catch (err: any) {

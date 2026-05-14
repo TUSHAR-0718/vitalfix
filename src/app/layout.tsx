@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import './globals.css'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import { AuthProvider } from '@/components/AuthProvider'
+import { PostHogClientProvider } from '@/components/PostHogProvider'
 import Navbar from '@/components/Navbar'
 import Footer from '@/components/Footer'
 import { WebSiteJsonLd } from '@/components/JsonLd'
@@ -29,12 +30,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <AuthProvider>
-          <ThemeProvider>
-            <Navbar />
-            <main>{children}</main>
-            <Footer />
-            <WebSiteJsonLd />
-          </ThemeProvider>
+          <PostHogClientProvider>
+            <ThemeProvider>
+              <Navbar />
+              <main>{children}</main>
+              <Footer />
+              <WebSiteJsonLd />
+            </ThemeProvider>
+          </PostHogClientProvider>
         </AuthProvider>
       </body>
     </html>

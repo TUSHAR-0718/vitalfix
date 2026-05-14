@@ -45,3 +45,4 @@ test-results/
 
 # Sentry
 .env.sentry-build-plugin
+.env*.local

@@ -13,6 +13,7 @@ import {
   apiErrorResponse,
   withRateLimitHeaders,
 } from '@/lib/api-auth'
+import { getFeatureFlag, captureServerEvent } from '@/lib/posthog'
 
 export const maxDuration = 180
 
@@ -132,6 +133,27 @@ export async function POST(req: NextRequest) {
   if (isApiError(auth)) return apiErrorResponse(auth)
 
   try {
+    // ── Feature Flag: Maintenance Mode ──
+    // When enabled in PostHog, the API returns 503 for all requests.
+    const maintenanceMode = await getFeatureFlag(
+      'maintenance-mode',
+      auth.user.id || 'api-user',
+      false,  // Default: not in maintenance
+    )
+    if (maintenanceMode) {
+      captureServerEvent(auth.user.id || 'api-user', 'api_maintenance_blocked')
+      return withRateLimitHeaders(
+        NextResponse.json(
+          {
+            error: 'VitalFix API is temporarily under maintenance. Please try again shortly.',
+            code: 'MAINTENANCE_MODE',
+          },
+          { status: 503 }
+        ),
+        auth
+      )
+    }
+
     const body = await req.json()
     const { url, strategy = 'mobile' } = body
 
@@ -194,15 +216,24 @@ export async function POST(req: NextRequest) {
     // ── Run Audits in Parallel ──
     const categories = ['performance', 'accessibility', 'best-practices', 'seo']
 
+    // ── Feature Flag: PSI Kill Switch ──
+    const psiEnabled = await getFeatureFlag(
+      'psi-api-enabled',
+      auth.user.id || 'api-user',
+      true,  // Default: PSI enabled
+    )
+
     const [psiResult, customAudit] = await Promise.allSettled([
-      fetchPSI({ url: cleanUrl, strategy: strat, categories, timeout: 90_000 })
-        .then(async (res) => {
-          if (!res.ok) {
-            const errBody = await res.json().catch(() => ({}))
-            throw new Error(errBody?.error?.message || `PSI returned ${res.status}`)
-          }
-          return res.json()
-        }),
+      psiEnabled
+        ? fetchPSI({ url: cleanUrl, strategy: strat, categories, timeout: 90_000 })
+            .then(async (res) => {
+              if (!res.ok) {
+                const errBody = await res.json().catch(() => ({}))
+                throw new Error(errBody?.error?.message || `PSI returned ${res.status}`)
+              }
+              return res.json()
+            })
+        : Promise.resolve(null),  // PSI disabled — resolve with null immediately
       runCustomAudit(cleanUrl).catch(() => null),
     ])
 

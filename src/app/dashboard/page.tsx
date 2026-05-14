@@ -16,6 +16,7 @@ import { saveScan, getHistory } from '@/lib/scan-store'
 import { useAuth } from '@/components/AuthProvider'
 import { useSyncLocalData } from '@/hooks/useSyncLocalData'
 import { useAnalytics } from '@/hooks/useAnalytics'
+import { useFlag } from '@/hooks/useFeatureFlag'
 
 import LeadCaptureModal from '@/components/LeadCaptureModal'
 import AuthModal from '@/components/AuthModal'
@@ -72,6 +73,12 @@ export default function DashboardPage() {
   const { user, plan, quotaUsed, quotaLimit, quotaRemaining } = useAuth()
   useSyncLocalData()
   const { trackPageView, trackFeature } = useAnalytics()
+
+  // Feature flags for growth components
+  const leadCaptureEnabled = useFlag('lead-capture-enabled')
+  const auditReminderEnabled = useFlag('audit-reminder-enabled')
+  // If PostHog is not configured, default to showing everything (existing behavior)
+  const posthogConfigured = !!process.env.NEXT_PUBLIC_POSTHOG_KEY
 
   // Track page view on mount
   useEffect(() => { trackPageView('/dashboard') }, [trackPageView])
@@ -795,7 +802,7 @@ export default function DashboardPage() {
         )}
 
         {/* ── Lead Capture Modal (anonymous users after audit) ── */}
-        {result && !loading && !user && showLeadCapture && (
+        {result && !loading && !user && showLeadCapture && (!posthogConfigured || leadCaptureEnabled) && (
           <LeadCaptureModal
             url={result.url}
             healthScore={result.healthScore}
@@ -810,7 +817,7 @@ export default function DashboardPage() {
         )}
 
         {/* ── Audit Reminder (returning users) ── */}
-        {!result && !loading && !error && user && (
+        {!result && !loading && !error && user && (!posthogConfigured || auditReminderEnabled) && (
           <AuditReminder onRunAudit={(reminderUrl) => { setUrl(reminderUrl); setTimeout(runAudit, 100) }} />
         )}
 

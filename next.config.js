@@ -43,7 +43,7 @@ const nextConfig = {
 module.exports = withSentryConfig(nextConfig, {
   // Sentry organization and project slugs
   org: process.env.SENTRY_ORG || "___ORG_SLUG___",
-  project: process.env.SENTRY_PROJECT || "___PROJECT_SLUG___",
+  project: process.env.SENTRY_PROJECT || "javascript-nextjs",
 
   // Source map upload auth token
   authToken: process.env.SENTRY_AUTH_TOKEN,
